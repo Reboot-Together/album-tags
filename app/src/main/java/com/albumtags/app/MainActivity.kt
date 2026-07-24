@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package com.albumtags.app
 
@@ -13,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -460,6 +464,10 @@ private fun AlbumListScreen(
                                 onOpenAlbum(album.bucketId)
                             }
                         },
+                        onLongPress = {
+                            selectionMode = true
+                            selectedAlbumIds = selectedAlbumIds + album.bucketId
+                        },
                         onEditTags = {
                             if (!selectionMode) editingAlbum = album
                         }
@@ -516,10 +524,16 @@ private fun AlbumCard(
     selected: Boolean,
     selectionMode: Boolean,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit,
     onEditTags: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = onLongPress
+            ),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
