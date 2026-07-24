@@ -110,6 +110,19 @@ class AlbumRepository(private val context: Context) {
         }.getOrDefault(emptyMap())
     }
 
+    fun loadTagGroups(): Map<String, Set<String>> {
+        val source = preferences.getString(KEY_TAG_GROUPS, "{}") ?: "{}"
+        return runCatching {
+            val json = JSONObject(source)
+            json.keys().asSequence().associateWith { groupName ->
+                val array = json.getJSONArray(groupName)
+                buildSet {
+                    repeat(array.length()) { add(array.getString(it)) }
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
     fun saveTags(albumId: String, tags: Set<String>) {
         val updated = loadTagMap().toMutableMap()
         if (tags.isEmpty()) updated.remove(albumId) else updated[albumId] = tags
@@ -128,11 +141,23 @@ class AlbumRepository(private val context: Context) {
         preferences.edit().putString(KEY_TAGS, json.toString()).apply()
     }
 
+    fun saveTagGroups(groups: Map<String, Set<String>>) {
+        val json = JSONObject()
+        groups.filterValues { it.isNotEmpty() }.forEach { (name, tags) ->
+            json.put(name, JSONArray(tags.sorted()))
+        }
+        preferences.edit().putString(KEY_TAG_GROUPS, json.toString()).apply()
+    }
+
     /** 태그만 내보냅니다. 사진·앨범 원본은 포함하지 않습니다. */
     fun exportTags(): String = JSONObject().apply {
         put("format", BACKUP_FORMAT)
         put("version", 1)
         put("tags", JSONObject(preferences.getString(KEY_TAGS, "{}") ?: "{}"))
+        put(
+            "tagGroups",
+            JSONObject(preferences.getString(KEY_TAG_GROUPS, "{}") ?: "{}")
+        )
     }.toString(2)
 
     /** 올바른 백업일 때만 현재 태그를 교체합니다. */
@@ -140,7 +165,11 @@ class AlbumRepository(private val context: Context) {
         val backup = JSONObject(contents)
         require(backup.getString("format") == BACKUP_FORMAT)
         val tags = backup.getJSONObject("tags")
-        preferences.edit().putString(KEY_TAGS, tags.toString()).apply()
+        val groups = backup.optJSONObject("tagGroups") ?: JSONObject()
+        preferences.edit()
+            .putString(KEY_TAGS, tags.toString())
+            .putString(KEY_TAG_GROUPS, groups.toString())
+            .apply()
         true
     }.getOrDefault(false)
 
@@ -154,6 +183,7 @@ class AlbumRepository(private val context: Context) {
 
     private companion object {
         const val KEY_TAGS = "tags_by_album"
+        const val KEY_TAG_GROUPS = "tag_groups"
         const val BACKUP_FORMAT = "album-tags-backup"
     }
 }

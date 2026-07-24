@@ -192,6 +192,8 @@ private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
             onOpenAlbum = viewModel::openAlbum,
             onRenameTag = viewModel::renameTag,
             onDeleteTag = viewModel::deleteTag,
+            onSaveTagGroup = viewModel::saveTagGroup,
+            onDeleteTagGroup = viewModel::deleteTagGroup,
             onBulkAddTags = viewModel::addTagsToAlbums
         )
     }
@@ -244,6 +246,8 @@ private fun AlbumListScreen(
     onOpenAlbum: (String) -> Unit,
     onRenameTag: (String, String) -> Boolean,
     onDeleteTag: (String) -> Unit,
+    onSaveTagGroup: (String?, String, Set<String>) -> Boolean,
+    onDeleteTagGroup: (String) -> Unit,
     onBulkAddTags: (Set<String>, Set<String>) -> Unit
 ) {
     var editingAlbum by remember { mutableStateOf<PhotoAlbum?>(null) }
@@ -251,6 +255,13 @@ private fun AlbumListScreen(
     var selectedAlbumIds by remember { mutableStateOf(emptySet<String>()) }
     var showBulkTagEditor by remember { mutableStateOf(false) }
     var showTagManager by remember { mutableStateOf(false) }
+    val availableTags = state.allTags.toSet()
+    val visibleTagGroups = state.tagGroups
+        .toSortedMap()
+        .mapValues { (_, tags) -> tags.intersect(availableTags) }
+        .filterValues { it.isNotEmpty() }
+    val groupedTags = visibleTagGroups.values.flatten().toSet()
+    val ungroupedTags = state.allTags.filter { it !in groupedTags }
 
     BackHandler(enabled = selectionMode) {
         selectionMode = false
@@ -328,12 +339,49 @@ private fun AlbumListScreen(
                         onClick = onToggleUntagged,
                         label = { Text("미분류") }
                     )
-                    state.allTags.forEach { tag ->
-                        FilterChip(
-                            selected = tag in state.selectedTags,
-                            onClick = { onToggleTag(tag) },
-                            label = { Text(tag) }
+                }
+                visibleTagGroups.forEach { (groupName, tags) ->
+                    Text(
+                        groupName,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                        color = Indigo,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        tags.sorted().forEach { tag ->
+                            FilterChip(
+                                selected = tag in state.selectedTags,
+                                onClick = { onToggleTag(tag) },
+                                label = { Text(tag) }
+                            )
+                        }
+                    }
+                }
+                if (ungroupedTags.isNotEmpty()) {
+                    if (visibleTagGroups.isNotEmpty()) {
+                        Text(
+                            "그룹 없음",
+                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                            color = Color(0xFF777B88),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelLarge
                         )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        ungroupedTags.forEach { tag ->
+                            FilterChip(
+                                selected = tag in state.selectedTags,
+                                onClick = { onToggleTag(tag) },
+                                label = { Text(tag) }
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -451,9 +499,12 @@ private fun AlbumListScreen(
     if (showTagManager) {
         TagManagerDialog(
             tags = state.allTags,
+            groups = state.tagGroups,
             onDismiss = { showTagManager = false },
             onRename = onRenameTag,
-            onDelete = onDeleteTag
+            onDelete = onDeleteTag,
+            onSaveGroup = onSaveTagGroup,
+            onDeleteGroup = onDeleteTagGroup
         )
     }
 }
@@ -780,25 +831,95 @@ private fun ZoomablePhoto(
 @Composable
 private fun TagManagerDialog(
     tags: List<String>,
+    groups: Map<String, Set<String>>,
     onDismiss: () -> Unit,
     onRename: (String, String) -> Boolean,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    onSaveGroup: (String?, String, Set<String>) -> Boolean,
+    onDeleteGroup: (String) -> Unit
 ) {
     var renamingTag by remember { mutableStateOf<String?>(null) }
     var deletingTag by remember { mutableStateOf<String?>(null) }
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    var showGroupEditor by remember { mutableStateOf(false) }
+    var deletingGroup by remember { mutableStateOf<String?>(null) }
     var newName by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("태그 관리", fontWeight = FontWeight.Bold) },
         text = {
-            if (tags.isEmpty()) {
-                Text("아직 만들어진 태그가 없어요.", color = Color(0xFF626673))
-            } else {
-                LazyColumn(
-                    modifier = Modifier.height(380.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+            LazyColumn(
+                modifier = Modifier.height(430.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                item {
+                    Button(
+                        enabled = tags.isNotEmpty(),
+                        onClick = {
+                            editingGroup = null
+                            showGroupEditor = true
+                        }
+                    ) {
+                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                        Text(" 태그 그룹 만들기")
+                    }
+                    if (tags.isEmpty()) {
+                        Text(
+                            "태그를 먼저 만든 뒤 그룹을 만들 수 있어요.",
+                            modifier = Modifier.padding(top = 8.dp),
+                            color = Color(0xFF626673)
+                        )
+                    }
+                }
+
+                if (groups.isNotEmpty()) {
+                    item {
+                        Text(
+                            "태그 그룹",
+                            modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+                            fontWeight = FontWeight.Bold,
+                            color = Indigo
+                        )
+                    }
+                    items(groups.keys.sorted(), key = { "group:$it" }) { groupName ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(groupName, fontWeight = FontWeight.Bold)
+                                Text(
+                                    groups[groupName].orEmpty().sorted().joinToString(" · "),
+                                    color = Color(0xFF777B88),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            IconButton(onClick = {
+                                editingGroup = groupName
+                                showGroupEditor = true
+                            }) {
+                                Icon(Icons.Default.Edit, "$groupName 그룹 수정", tint = Indigo)
+                            }
+                            IconButton(onClick = { deletingGroup = groupName }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    "$groupName 그룹 삭제",
+                                    tint = Color(0xFFC44747)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (tags.isNotEmpty()) {
+                    item {
+                        Text(
+                            "태그",
+                            modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     items(tags, key = { it }) { tag ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -886,6 +1007,129 @@ private fun TagManagerDialog(
             }
         )
     }
+
+    if (showGroupEditor) {
+        TagGroupEditorDialog(
+            originalName = editingGroup,
+            initialTags = editingGroup?.let { groups[it].orEmpty() }.orEmpty(),
+            allTags = tags,
+            existingGroupNames = groups.keys,
+            onDismiss = { showGroupEditor = false },
+            onSave = { name, selectedTags ->
+                val saved = onSaveGroup(editingGroup, name, selectedTags)
+                if (saved) showGroupEditor = false
+                saved
+            }
+        )
+    }
+
+    deletingGroup?.let { groupName ->
+        AlertDialog(
+            onDismissRequest = { deletingGroup = null },
+            title = { Text("태그 그룹 삭제") },
+            text = {
+                Text(
+                    "$groupName 그룹을 삭제할까요?\n그룹 안의 태그와 앨범 연결은 유지됩니다."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onDeleteGroup(groupName)
+                    deletingGroup = null
+                }) {
+                    Text("그룹 삭제")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingGroup = null }) { Text("취소") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TagGroupEditorDialog(
+    originalName: String?,
+    initialTags: Set<String>,
+    allTags: List<String>,
+    existingGroupNames: Set<String>,
+    onDismiss: () -> Unit,
+    onSave: (String, Set<String>) -> Boolean
+) {
+    var groupName by remember(originalName) { mutableStateOf(originalName.orEmpty()) }
+    var selectedTags by remember(originalName) { mutableStateOf(initialTags) }
+    val normalizedName = groupName.trim()
+    val duplicateName = normalizedName != originalName &&
+        normalizedName in existingGroupNames
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (originalName == null) "태그 그룹 만들기" else "태그 그룹 수정",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = groupName,
+                    onValueChange = { groupName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("그룹 이름") },
+                    placeholder = { Text("예: 학창시절") },
+                    isError = duplicateName,
+                    supportingText = {
+                        if (duplicateName) Text("이미 같은 이름의 그룹이 있어요.")
+                    },
+                    singleLine = true
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "포함할 태그",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Text(
+                    "다른 그룹에 있던 태그를 선택하면 이 그룹으로 이동합니다.",
+                    color = Color(0xFF777B88),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    allTags.forEach { tag ->
+                        FilterChip(
+                            selected = tag in selectedTags,
+                            onClick = {
+                                selectedTags = if (tag in selectedTags) {
+                                    selectedTags - tag
+                                } else {
+                                    selectedTags + tag
+                                }
+                            },
+                            label = { Text(tag) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = normalizedName.isNotEmpty() &&
+                    selectedTags.isNotEmpty() &&
+                    !duplicateName,
+                onClick = { onSave(normalizedName, selectedTags) }
+            ) {
+                Text("저장")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소") }
+        }
+    )
 }
 
 @Composable

@@ -21,6 +21,7 @@ enum class TagMatchMode { ALL, ANY }
 data class AlbumUiState(
     val albums: List<PhotoAlbum> = emptyList(),
     val tagMap: Map<String, Set<String>> = emptyMap(),
+    val tagGroups: Map<String, Set<String>> = emptyMap(),
     val selectedTags: Set<String> = emptySet(),
     val query: String = "",
     val matchMode: TagMatchMode = TagMatchMode.ALL,
