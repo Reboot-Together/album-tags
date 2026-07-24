@@ -70,6 +70,33 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun renameTag(oldName: String, newName: String): Boolean {
+        val normalized = newName.trim().removePrefix("#")
+        if (normalized.isEmpty() || normalized == oldName) return false
+        val updated = _uiState.value.tagMap.mapValues { (_, tags) ->
+            if (oldName in tags) (tags - oldName) + normalized else tags
+        }
+        repository.saveTagMap(updated)
+        _uiState.update {
+            it.copy(
+                tagMap = updated,
+                selectedTags = it.selectedTags
+                    .let { selected -> if (oldName in selected) (selected - oldName) + normalized else selected }
+            )
+        }
+        return true
+    }
+
+    fun addTagsToAlbums(albumIds: Set<String>, tagsToAdd: Set<String>) {
+        if (albumIds.isEmpty() || tagsToAdd.isEmpty()) return
+        val updated = _uiState.value.tagMap.toMutableMap()
+        albumIds.forEach { albumId ->
+            updated[albumId] = updated[albumId].orEmpty() + tagsToAdd
+        }
+        repository.saveTagMap(updated)
+        _uiState.update { it.copy(tagMap = updated) }
+    }
+
     fun openAlbum(albumId: String) {
         _uiState.update {
             it.copy(

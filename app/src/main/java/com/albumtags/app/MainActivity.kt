@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Search
@@ -48,6 +50,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -171,7 +174,9 @@ private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
             onImport = { importLauncher.launch(arrayOf("application/json")) },
             message = importMessage,
             onDismissMessage = { importMessage = null },
-            onOpenAlbum = viewModel::openAlbum
+            onOpenAlbum = viewModel::openAlbum,
+            onRenameTag = viewModel::renameTag,
+            onBulkAddTags = viewModel::addTagsToAlbums
         )
     }
 }
@@ -220,9 +225,20 @@ private fun AlbumListScreen(
     onImport: () -> Unit,
     message: String?,
     onDismissMessage: () -> Unit,
-    onOpenAlbum: (String) -> Unit
+    onOpenAlbum: (String) -> Unit,
+    onRenameTag: (String, String) -> Boolean,
+    onBulkAddTags: (Set<String>, Set<String>) -> Unit
 ) {
     var editingAlbum by remember { mutableStateOf<PhotoAlbum?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedAlbumIds by remember { mutableStateOf(emptySet<String>()) }
+    var showBulkTagEditor by remember { mutableStateOf(false) }
+    var showTagManager by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedAlbumIds = emptySet()
+    }
 
     Scaffold(containerColor = Background) { scaffoldPadding ->
         LazyColumn(
@@ -274,6 +290,9 @@ private fun AlbumListScreen(
                 ) {
                     Text("필터", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { showTagManager = true }) {
+                        Text("태그 관리")
+                    }
                     if (state.selectedTags.isNotEmpty()) {
                         TextButton(onClick = onToggleMatchMode) {
                             Text(if (state.matchMode == TagMatchMode.ALL) "모두 포함" else "하나라도 포함")
@@ -301,11 +320,53 @@ private fun AlbumListScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "앨범 ${state.visibleAlbums.size}개",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "앨범 ${state.visibleAlbums.size}개",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        selectionMode = !selectionMode
+                        selectedAlbumIds = emptySet()
+                    }) {
+                        Text(if (selectionMode) "선택 취소" else "여러 앨범 선택")
+                    }
+                }
+            }
+
+            if (selectionMode) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = Indigo.copy(alpha = 0.09f)
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "${selectedAlbumIds.size}개 선택",
+                                fontWeight = FontWeight.Bold,
+                                color = Indigo
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Button(
+                                enabled = selectedAlbumIds.isNotEmpty(),
+                                onClick = { showBulkTagEditor = true }
+                            ) {
+                                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                                Text(" 태그 추가")
+                            }
+                        }
+                    }
+                }
             }
 
             when {
@@ -321,8 +382,22 @@ private fun AlbumListScreen(
                     AlbumCard(
                         album = album,
                         tags = state.tagMap[album.bucketId].orEmpty(),
-                        onOpen = { onOpenAlbum(album.bucketId) },
-                        onEditTags = { editingAlbum = album }
+                        selected = album.bucketId in selectedAlbumIds,
+                        selectionMode = selectionMode,
+                        onOpen = {
+                            if (selectionMode) {
+                                selectedAlbumIds = if (album.bucketId in selectedAlbumIds) {
+                                    selectedAlbumIds - album.bucketId
+                                } else {
+                                    selectedAlbumIds + album.bucketId
+                                }
+                            } else {
+                                onOpenAlbum(album.bucketId)
+                            }
+                        },
+                        onEditTags = {
+                            if (!selectionMode) editingAlbum = album
+                        }
                     )
                 }
             }
@@ -341,12 +416,36 @@ private fun AlbumListScreen(
             }
         )
     }
+
+    if (showBulkTagEditor) {
+        BulkTagDialog(
+            albumCount = selectedAlbumIds.size,
+            suggestedTags = state.allTags,
+            onDismiss = { showBulkTagEditor = false },
+            onSave = { tags ->
+                onBulkAddTags(selectedAlbumIds, tags)
+                showBulkTagEditor = false
+                selectionMode = false
+                selectedAlbumIds = emptySet()
+            }
+        )
+    }
+
+    if (showTagManager) {
+        TagManagerDialog(
+            tags = state.allTags,
+            onDismiss = { showTagManager = false },
+            onRename = onRenameTag
+        )
+    }
 }
 
 @Composable
 private fun AlbumCard(
     album: PhotoAlbum,
     tags: Set<String>,
+    selected: Boolean,
+    selectionMode: Boolean,
     onOpen: () -> Unit,
     onEditTags: () -> Unit
 ) {
@@ -354,7 +453,8 @@ private fun AlbumCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = if (selected) BorderStroke(2.dp, Indigo) else null
     ) {
         Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -384,8 +484,12 @@ private fun AlbumCard(
                     }
                 }
             }
-            IconButton(onClick = onEditTags) {
-                Icon(Icons.Default.Label, "태그 편집", tint = Indigo.copy(alpha = 0.7f))
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onOpen() })
+            } else {
+                IconButton(onClick = onEditTags) {
+                    Icon(Icons.Default.Label, "태그 편집", tint = Indigo.copy(alpha = 0.7f))
+                }
             }
         }
     }
@@ -527,6 +631,170 @@ private fun AlbumDetailScreen(
             }
         }
     }
+}
+
+@Composable
+private fun TagManagerDialog(
+    tags: List<String>,
+    onDismiss: () -> Unit,
+    onRename: (String, String) -> Boolean
+) {
+    var renamingTag by remember { mutableStateOf<String?>(null) }
+    var newName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("태그 관리", fontWeight = FontWeight.Bold) },
+        text = {
+            if (tags.isEmpty()) {
+                Text("아직 만들어진 태그가 없어요.", color = Color(0xFF626673))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(380.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(tags, key = { it }) { tag ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("#$tag", modifier = Modifier.weight(1f))
+                            IconButton(onClick = {
+                                renamingTag = tag
+                                newName = tag
+                            }) {
+                                Icon(Icons.Default.Edit, "$tag 이름 변경", tint = Indigo)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("닫기") }
+        }
+    )
+
+    renamingTag?.let { oldName ->
+        AlertDialog(
+            onDismissRequest = { renamingTag = null },
+            title = { Text("태그 이름 변경") },
+            text = {
+                Column {
+                    Text(
+                        "#$oldName 태그가 붙은 모든 앨범에 새 이름이 적용됩니다.",
+                        color = Color(0xFF626673)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("새 태그명") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = newName.trim().removePrefix("#").isNotEmpty() &&
+                        newName.trim().removePrefix("#") != oldName,
+                    onClick = {
+                        onRename(oldName, newName)
+                        renamingTag = null
+                    }
+                ) { Text("변경") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingTag = null }) { Text("취소") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun BulkTagDialog(
+    albumCount: Int,
+    suggestedTags: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (Set<String>) -> Unit
+) {
+    var selectedTags by remember { mutableStateOf(emptySet<String>()) }
+    var input by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${albumCount}개 앨범에 태그 추가", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "각 앨범의 기존 태그는 그대로 유지됩니다.",
+                    color = Color(0xFF626673)
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("새 태그") },
+                    placeholder = { Text("예: 가족") },
+                    singleLine = true,
+                    keyboardActions = KeyboardActions(onDone = {
+                        val tag = input.trim().removePrefix("#")
+                        if (tag.isNotEmpty()) {
+                            selectedTags = selectedTags + tag
+                            input = ""
+                        }
+                    })
+                )
+                if (suggestedTags.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("기존 태그", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(5.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        suggestedTags.forEach { tag ->
+                            FilterChip(
+                                selected = tag in selectedTags,
+                                onClick = {
+                                    selectedTags = if (tag in selectedTags) {
+                                        selectedTags - tag
+                                    } else {
+                                        selectedTags + tag
+                                    }
+                                },
+                                label = { Text(tag) }
+                            )
+                        }
+                    }
+                }
+                if (selectedTags.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "추가 예정: ${selectedTags.sorted().joinToString { "#$it" }}",
+                        color = Indigo,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            val pending = input.trim().removePrefix("#")
+            Button(
+                enabled = selectedTags.isNotEmpty() || pending.isNotEmpty(),
+                onClick = {
+                    onSave(
+                        if (pending.isEmpty()) selectedTags else selectedTags + pending
+                    )
+                }
+            ) { Text("추가") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("취소") }
+        }
+    )
 }
 
 @Composable

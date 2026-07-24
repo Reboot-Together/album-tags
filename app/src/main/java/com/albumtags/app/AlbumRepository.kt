@@ -120,6 +120,14 @@ class AlbumRepository(private val context: Context) {
         preferences.edit().putString(KEY_TAGS, json.toString()).apply()
     }
 
+    fun saveTagMap(tagMap: Map<String, Set<String>>) {
+        val json = JSONObject()
+        tagMap.filterValues { it.isNotEmpty() }.forEach { (id, values) ->
+            json.put(id, JSONArray(values.sorted()))
+        }
+        preferences.edit().putString(KEY_TAGS, json.toString()).apply()
+    }
+
     /** 태그만 내보냅니다. 사진·앨범 원본은 포함하지 않습니다. */
     fun exportTags(): String = JSONObject().apply {
         put("format", BACKUP_FORMAT)
