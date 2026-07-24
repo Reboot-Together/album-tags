@@ -10,6 +10,12 @@ data class PhotoAlbum(
     val newestDateSeconds: Long
 )
 
+data class AlbumPhoto(
+    val id: Long,
+    val uri: Uri,
+    val dateTakenMillis: Long
+)
+
 enum class TagMatchMode { ALL, ANY }
 
 data class AlbumUiState(
@@ -20,7 +26,10 @@ data class AlbumUiState(
     val matchMode: TagMatchMode = TagMatchMode.ALL,
     val showUntaggedOnly: Boolean = false,
     val isLoading: Boolean = true,
-    val permissionGranted: Boolean = false
+    val permissionGranted: Boolean = false,
+    val openedAlbumId: String? = null,
+    val albumPhotos: List<AlbumPhoto> = emptyList(),
+    val arePhotosLoading: Boolean = false
 ) {
     val allTags: List<String>
         get() = tagMap.values.flatten().distinct().sorted()
@@ -37,4 +46,7 @@ data class AlbumUiState(
             val matchesUntagged = !showUntaggedOnly || tags.isEmpty()
             matchesQuery && matchesTags && matchesUntagged
         }
+
+    val openedAlbum: PhotoAlbum?
+        get() = albums.firstOrNull { it.bucketId == openedAlbumId }
 }

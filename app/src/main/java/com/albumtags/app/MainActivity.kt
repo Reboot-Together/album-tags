@@ -7,12 +7,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -26,11 +28,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Search
@@ -65,6 +73,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -137,6 +147,16 @@ private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
 
     if (!permissionGranted) {
         PermissionScreen { launcher.launch(permission) }
+    } else if (state.openedAlbum != null) {
+        AlbumDetailScreen(
+            album = state.openedAlbum!!,
+            photos = state.albumPhotos,
+            tags = state.tagMap[state.openedAlbum!!.bucketId].orEmpty(),
+            allTags = state.allTags,
+            isLoading = state.arePhotosLoading,
+            onBack = viewModel::closeAlbum,
+            onSaveTags = viewModel::saveTags
+        )
     } else {
         AlbumListScreen(
             state = state,
@@ -150,7 +170,8 @@ private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
             onExport = { backupLauncher.launch("album-tags-backup.json") },
             onImport = { importLauncher.launch(arrayOf("application/json")) },
             message = importMessage,
-            onDismissMessage = { importMessage = null }
+            onDismissMessage = { importMessage = null },
+            onOpenAlbum = viewModel::openAlbum
         )
     }
 }
@@ -198,7 +219,8 @@ private fun AlbumListScreen(
     onExport: () -> Unit,
     onImport: () -> Unit,
     message: String?,
-    onDismissMessage: () -> Unit
+    onDismissMessage: () -> Unit,
+    onOpenAlbum: (String) -> Unit
 ) {
     var editingAlbum by remember { mutableStateOf<PhotoAlbum?>(null) }
 
@@ -299,7 +321,8 @@ private fun AlbumListScreen(
                     AlbumCard(
                         album = album,
                         tags = state.tagMap[album.bucketId].orEmpty(),
-                        onClick = { editingAlbum = album }
+                        onOpen = { onOpenAlbum(album.bucketId) },
+                        onEditTags = { editingAlbum = album }
                     )
                 }
             }
@@ -321,9 +344,14 @@ private fun AlbumListScreen(
 }
 
 @Composable
-private fun AlbumCard(album: PhotoAlbum, tags: Set<String>, onClick: () -> Unit) {
+private fun AlbumCard(
+    album: PhotoAlbum,
+    tags: Set<String>,
+    onOpen: () -> Unit,
+    onEditTags: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -356,7 +384,147 @@ private fun AlbumCard(album: PhotoAlbum, tags: Set<String>, onClick: () -> Unit)
                     }
                 }
             }
-            Icon(Icons.Default.Label, null, tint = Indigo.copy(alpha = 0.7f))
+            IconButton(onClick = onEditTags) {
+                Icon(Icons.Default.Label, "태그 편집", tint = Indigo.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumDetailScreen(
+    album: PhotoAlbum,
+    photos: List<AlbumPhoto>,
+    tags: Set<String>,
+    allTags: List<String>,
+    isLoading: Boolean,
+    onBack: () -> Unit,
+    onSaveTags: (String, Set<String>) -> Unit
+) {
+    var editingTags by remember { mutableStateOf(false) }
+    var selectedPhoto by remember { mutableStateOf<AlbumPhoto?>(null) }
+
+    BackHandler(enabled = selectedPhoto == null, onBack = onBack)
+
+    Column(modifier = Modifier.fillMaxSize().background(Background)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 12.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "앨범 목록으로")
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    album.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "사진 ${album.photoCount}장",
+                    color = Color(0xFF777B88),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            IconButton(onClick = { editingTags = true }) {
+                Icon(Icons.Default.Label, "태그 편집", tint = Indigo)
+            }
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (tags.isEmpty()) {
+                AssistChip(
+                    onClick = { editingTags = true },
+                    label = { Text("태그 추가") },
+                    leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) }
+                )
+            } else {
+                tags.sorted().forEach { tag ->
+                    AssistChip(
+                        onClick = { editingTags = true },
+                        label = { Text("#$tag") }
+                    )
+                }
+            }
+        }
+
+        when {
+            isLoading -> Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            photos.isEmpty() -> Box(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("이 앨범에서 표시할 사진을 찾지 못했어요.", color = Color(0xFF777B88))
+            }
+            else -> LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                gridItems(photos, key = { it.id }) { photo ->
+                    AsyncImage(
+                        model = photo.uri,
+                        contentDescription = "앨범 사진",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clickable { selectedPhoto = photo },
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+        }
+    }
+
+    if (editingTags) {
+        TagEditorDialog(
+            album = album,
+            initialTags = tags,
+            suggestedTags = allTags,
+            onDismiss = { editingTags = false },
+            onSave = {
+                onSaveTags(album.bucketId, it)
+                editingTags = false
+            }
+        )
+    }
+
+    selectedPhoto?.let { photo ->
+        Dialog(
+            onDismissRequest = { selectedPhoto = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = photo.uri,
+                    contentDescription = "확대된 사진",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+                IconButton(
+                    onClick = { selectedPhoto = null },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(14.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, "사진 닫기", tint = Color.White)
+                }
+            }
         }
     }
 }

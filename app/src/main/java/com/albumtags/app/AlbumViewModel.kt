@@ -70,6 +70,34 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun openAlbum(albumId: String) {
+        _uiState.update {
+            it.copy(
+                openedAlbumId = albumId,
+                albumPhotos = emptyList(),
+                arePhotosLoading = true
+            )
+        }
+        viewModelScope.launch {
+            val photos = repository.loadAlbumPhotos(albumId)
+            _uiState.update {
+                if (it.openedAlbumId == albumId) {
+                    it.copy(albumPhotos = photos, arePhotosLoading = false)
+                } else {
+                    it
+                }
+            }
+        }
+    }
+
+    fun closeAlbum() = _uiState.update {
+        it.copy(
+            openedAlbumId = null,
+            albumPhotos = emptyList(),
+            arePhotosLoading = false
+        )
+    }
+
     fun exportTags(): String = repository.exportTags()
 
     fun importTags(contents: String): Boolean {

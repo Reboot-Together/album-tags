@@ -58,6 +58,45 @@ class AlbumRepository(private val context: Context) {
         }.sortedByDescending { it.newestDateSeconds }
     }
 
+    suspend fun loadAlbumPhotos(bucketId: String): List<AlbumPhoto> =
+        withContext(Dispatchers.IO) {
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.DATE_ADDED
+            )
+            val photos = mutableListOf<AlbumPhoto>()
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Images.Media.BUCKET_ID} = ?",
+                arrayOf(bucketId),
+                "${MediaStore.Images.Media.DATE_TAKEN} DESC, " +
+                    "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                val idColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val takenColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                val addedColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idColumn)
+                    val taken = cursor.getLong(takenColumn)
+                    val addedMillis = cursor.getLong(addedColumn) * 1_000L
+                    photos += AlbumPhoto(
+                        id = id,
+                        uri = ContentUris.withAppendedId(
+                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            id
+                        ),
+                        dateTakenMillis = if (taken > 0) taken else addedMillis
+                    )
+                }
+            }
+            photos
+        }
+
     fun loadTagMap(): Map<String, Set<String>> {
         val source = preferences.getString(KEY_TAGS, "{}") ?: "{}"
         return runCatching {
