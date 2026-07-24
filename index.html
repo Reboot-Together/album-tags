@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#5a58d6" />
+  <title>앨범태그</title>
+  <link rel="stylesheet" href="web/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="앨범태그 홈"><span class="brand-mark">▦</span> 앨범태그</a>
+    <div class="top-actions">
+      <button class="text-button" id="exportButton">백업</button>
+      <label class="text-button import-label">복원<input id="importInput" type="file" accept="application/json" hidden></label>
+      <button class="primary-button" id="newAlbumButton">+ 앨범 추가</button>
+    </div>
+  </header>
+
+  <main id="top" class="page">
+    <section class="hero">
+      <p class="eyebrow">내 추억을 여러 관점으로</p>
+      <h1>앨범은 그대로,<br><em>분류는 자유롭게.</em></h1>
+      <p class="intro">여행, 가족, 여자친구, 군대처럼 하나의 앨범에 원하는 태그를 여러 개 붙여 보세요.</p>
+    </section>
+
+    <section class="toolbox" aria-label="앨범 검색과 필터">
+      <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="앨범명 또는 태그 검색" autocomplete="off"></label>
+      <div class="filter-row">
+        <div>
+          <span class="filter-label">태그 필터</span>
+          <div id="tagFilters" class="chips" aria-live="polite"></div>
+        </div>
+        <div class="filter-actions">
+          <button id="matchModeButton" class="subtle-button" title="태그를 2개 이상 선택하면 동작합니다">모두 포함</button>
+          <button id="untaggedButton" class="subtle-button">미분류</button>
+          <button id="clearFiltersButton" class="text-button">초기화</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="results-header">
+      <div><h2 id="resultTitle">모든 앨범</h2><p id="resultCount"></p></div>
+      <select id="sortSelect" aria-label="정렬 순서">
+        <option value="newest">최근 시점순</option>
+        <option value="oldest">오래된 시점순</option>
+        <option value="name">이름순</option>
+      </select>
+    </section>
+    <section id="albumGrid" class="album-grid" aria-live="polite"></section>
+  </main>
+
+  <dialog id="albumDialog">
+    <form id="albumForm" method="dialog">
+      <div class="dialog-title"><h2 id="dialogHeading">앨범 추가</h2><button type="button" class="close-button" id="closeDialog" aria-label="닫기">×</button></div>
+      <label>앨범 이름<input id="albumNameInput" required maxlength="60" placeholder="예: 2406 부산 여행"></label>
+      <div class="two-fields">
+        <label>시점<input id="albumDateInput" type="month" required></label>
+        <label>사진 수<input id="photoCountInput" type="number" min="0" value="0"></label>
+      </div>
+      <label>태그 <span class="hint">쉼표 또는 Enter로 구분</span>
+        <input id="tagsInput" maxlength="200" placeholder="예: 여자친구, 가족, 여행, 제주"></label>
+      <div class="suggestions"><span>자주 쓰는 태그</span><div id="tagSuggestions" class="chips"></div></div>
+      <div class="dialog-actions"><button type="button" class="danger-button" id="deleteButton" hidden>삭제</button><span></span><button type="button" class="text-button" id="cancelButton">취소</button><button class="primary-button" value="default">저장</button></div>
+    </form>
+  </dialog>
+
+  <template id="albumTemplate">
+    <article class="album-card">
+      <button class="cover" type="button" aria-label="앨범 편집"><span class="cover-month"></span><span class="cover-icon">⌁</span></button>
+      <div class="album-content"><div class="album-main"><h3></h3><p class="album-meta"></p></div><div class="album-tags"></div></div>
+    </article>
+  </template>
+  <script src="web/app.js"></script>
+</body>
+</html>
