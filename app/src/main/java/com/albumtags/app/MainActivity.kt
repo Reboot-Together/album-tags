@@ -13,6 +13,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -31,7 +36,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -72,17 +79,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val Indigo = Color(0xFF5757D9)
 private val Background = Color(0xFFF8F9FC)
@@ -510,9 +524,9 @@ private fun AlbumDetailScreen(
     onSaveTags: (String, Set<String>) -> Unit
 ) {
     var editingTags by remember { mutableStateOf(false) }
-    var selectedPhoto by remember { mutableStateOf<AlbumPhoto?>(null) }
+    var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
-    BackHandler(enabled = selectedPhoto == null, onBack = onBack)
+    BackHandler(enabled = selectedPhotoIndex == null, onBack = onBack)
 
     Column(modifier = Modifier.fillMaxSize().background(Background)) {
         Row(
@@ -580,14 +594,14 @@ private fun AlbumDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                gridItems(photos, key = { it.id }) { photo ->
+                gridItemsIndexed(photos, key = { _, photo -> photo.id }) { index, photo ->
                     AsyncImage(
                         model = photo.uri,
                         contentDescription = "앨범 사진",
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .clickable { selectedPhoto = photo },
+                            .clickable { selectedPhotoIndex = index },
                         contentScale = ContentScale.Crop
                     )
                 }
@@ -608,33 +622,159 @@ private fun AlbumDetailScreen(
         )
     }
 
-    selectedPhoto?.let { photo ->
-        Dialog(
-            onDismissRequest = { selectedPhoto = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = photo.uri,
-                    contentDescription = "확대된 사진",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
+    selectedPhotoIndex?.let { initialIndex ->
+        FullScreenPhotoViewer(
+            photos = photos,
+            initialIndex = initialIndex,
+            onDismiss = { selectedPhotoIndex = null }
+        )
+    }
+}
+
+@Composable
+private fun FullScreenPhotoViewer(
+    photos: List<AlbumPhoto>,
+    initialIndex: Int,
+    onDismiss: () -> Unit
+) {
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex.coerceIn(0, photos.lastIndex),
+        pageCount = { photos.size }
+    )
+    var controlsVisible by remember { mutableStateOf(true) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1
+            ) { page ->
+                ZoomablePhoto(
+                    photo = photos[page],
+                    onTap = { controlsVisible = !controlsVisible }
                 )
+            }
+
+            if (controlsVisible) {
                 IconButton(
-                    onClick = { selectedPhoto = null },
+                    onClick = onDismiss,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(14.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .background(Color.Black.copy(alpha = 0.58f), CircleShape)
                 ) {
                     Icon(Icons.Default.Close, "사진 닫기", tint = Color.White)
+                }
+
+                val currentPhoto = photos[pagerState.currentPage]
+                val dateText = remember(currentPhoto.id) {
+                    if (currentPhoto.dateTakenMillis > 0) {
+                        SimpleDateFormat(
+                            "yyyy년 M월 d일 HH:mm",
+                            Locale.getDefault()
+                        ).format(Date(currentPhoto.dateTakenMillis))
+                    } else {
+                        "촬영 날짜 정보 없음"
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.62f))
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        dateText,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${pagerState.currentPage + 1} / ${photos.size}",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ZoomablePhoto(
+    photo: AlbumPhoto,
+    onTap: () -> Unit
+) {
+    var scale by remember(photo.id) { mutableStateOf(1f) }
+    var offset by remember(photo.id) { mutableStateOf(Offset.Zero) }
+    var imageWidth by remember(photo.id) { mutableStateOf(0f) }
+    var imageHeight by remember(photo.id) { mutableStateOf(0f) }
+    val interactionSource = remember(photo.id) { MutableInteractionSource() }
+
+    fun boundedOffset(candidate: Offset, atScale: Float): Offset {
+        val maxX = imageWidth * (atScale - 1f) / 2f
+        val maxY = imageHeight * (atScale - 1f) / 2f
+        return Offset(
+            x = candidate.x.coerceIn(-maxX, maxX),
+            y = candidate.y.coerceIn(-maxY, maxY)
+        )
+    }
+
+    AsyncImage(
+        model = photo.uri,
+        contentDescription = "확대된 사진",
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged {
+                imageWidth = it.width.toFloat()
+                imageHeight = it.height.toFloat()
+            }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            }
+            .pointerInput(photo.id) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val pressedCount = event.changes.count { it.pressed }
+                        val zoom = event.calculateZoom()
+                        val pan = event.calculatePan()
+                        val shouldTransform =
+                            pressedCount >= 2 || (scale > 1f && pan != Offset.Zero)
+
+                        if (shouldTransform) {
+                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                            scale = newScale
+                            offset = if (newScale == 1f) {
+                                Offset.Zero
+                            } else {
+                                boundedOffset(offset + pan, newScale)
+                            }
+                            event.changes.forEach { it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onTap
+            ),
+        contentScale = ContentScale.Fit
+    )
 }
 
 @Composable
