@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Label
@@ -176,6 +177,7 @@ private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
             onDismissMessage = { importMessage = null },
             onOpenAlbum = viewModel::openAlbum,
             onRenameTag = viewModel::renameTag,
+            onDeleteTag = viewModel::deleteTag,
             onBulkAddTags = viewModel::addTagsToAlbums
         )
     }
@@ -227,6 +229,7 @@ private fun AlbumListScreen(
     onDismissMessage: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     onRenameTag: (String, String) -> Boolean,
+    onDeleteTag: (String) -> Unit,
     onBulkAddTags: (Set<String>, Set<String>) -> Unit
 ) {
     var editingAlbum by remember { mutableStateOf<PhotoAlbum?>(null) }
@@ -435,7 +438,8 @@ private fun AlbumListScreen(
         TagManagerDialog(
             tags = state.allTags,
             onDismiss = { showTagManager = false },
-            onRename = onRenameTag
+            onRename = onRenameTag,
+            onDelete = onDeleteTag
         )
     }
 }
@@ -637,9 +641,11 @@ private fun AlbumDetailScreen(
 private fun TagManagerDialog(
     tags: List<String>,
     onDismiss: () -> Unit,
-    onRename: (String, String) -> Boolean
+    onRename: (String, String) -> Boolean,
+    onDelete: (String) -> Unit
 ) {
     var renamingTag by remember { mutableStateOf<String?>(null) }
+    var deletingTag by remember { mutableStateOf<String?>(null) }
     var newName by remember { mutableStateOf("") }
 
     AlertDialog(
@@ -664,6 +670,13 @@ private fun TagManagerDialog(
                                 newName = tag
                             }) {
                                 Icon(Icons.Default.Edit, "$tag 이름 변경", tint = Indigo)
+                            }
+                            IconButton(onClick = { deletingTag = tag }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    "$tag 삭제",
+                                    tint = Color(0xFFC44747)
+                                )
                             }
                         }
                     }
@@ -707,6 +720,29 @@ private fun TagManagerDialog(
             },
             dismissButton = {
                 TextButton(onClick = { renamingTag = null }) { Text("취소") }
+            }
+        )
+    }
+
+    deletingTag?.let { tag ->
+        AlertDialog(
+            onDismissRequest = { deletingTag = null },
+            title = { Text("태그 삭제") },
+            text = {
+                Text(
+                    "#$tag 태그를 모든 앨범에서 삭제할까요?\n사진과 앨범은 삭제되지 않습니다."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onDelete(tag)
+                    deletingTag = null
+                }) {
+                    Text("삭제")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingTag = null }) { Text("취소") }
             }
         )
     }

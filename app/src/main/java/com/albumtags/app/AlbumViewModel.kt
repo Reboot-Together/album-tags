@@ -87,6 +87,19 @@ class AlbumViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
+    fun deleteTag(tagName: String) {
+        val updated = _uiState.value.tagMap.mapValues { (_, tags) ->
+            tags - tagName
+        }
+        repository.saveTagMap(updated)
+        _uiState.update {
+            it.copy(
+                tagMap = updated,
+                selectedTags = it.selectedTags - tagName
+            )
+        }
+    }
+
     fun addTagsToAlbums(albumIds: Set<String>, tagsToAdd: Set<String>) {
         if (albumIds.isEmpty() || tagsToAdd.isEmpty()) return
         val updated = _uiState.value.tagMap.toMutableMap()
