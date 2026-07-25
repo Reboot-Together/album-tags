@@ -313,6 +313,8 @@ private fun AlbumListScreen(
     var showBulkTagEditor by remember { mutableStateOf(false) }
     var showTagManager by remember { mutableStateOf(false) }
     var tagToRename by remember { mutableStateOf<String?>(null) }
+    var tagToDelete by remember { mutableStateOf<String?>(null) }
+    var tagActionTarget by remember { mutableStateOf<String?>(null) }
     var collapsedTagGroups by remember { mutableStateOf(emptySet<String>()) }
     val availableTags = state.allTags.toSet()
     val visibleTagGroups = state.tagGroups
@@ -400,6 +402,7 @@ private fun AlbumListScreen(
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = {
                         tagToRename = null
+                        tagToDelete = null
                         showTagManager = true
                     }) {
                         Text("태그 관리")
@@ -474,8 +477,7 @@ private fun AlbumListScreen(
                                     selected = tag in state.selectedTags,
                                     onClick = { onToggleTag(tag) },
                                     onLongClick = {
-                                        tagToRename = tag
-                                        showTagManager = true
+                                        tagActionTarget = tag
                                     },
                                     label = { Text(tag) }
                                 )
@@ -502,8 +504,7 @@ private fun AlbumListScreen(
                                 selected = tag in state.selectedTags,
                                 onClick = { onToggleTag(tag) },
                                 onLongClick = {
-                                    tagToRename = tag
-                                    showTagManager = true
+                                    tagActionTarget = tag
                                 },
                                 label = { Text(tag) }
                             )
@@ -685,14 +686,51 @@ private fun AlbumListScreen(
             tags = state.allTags,
             groups = state.tagGroups,
             initialRenamingTag = tagToRename,
+            initialDeletingTag = tagToDelete,
             onDismiss = {
                 showTagManager = false
                 tagToRename = null
+                tagToDelete = null
             },
             onRename = onRenameTag,
             onDelete = onDeleteTag,
             onSaveGroup = onSaveTagGroup,
             onDeleteGroup = onDeleteTagGroup
+        )
+    }
+
+    tagActionTarget?.let { tag ->
+        AlertDialog(
+            onDismissRequest = { tagActionTarget = null },
+            title = { Text("#$tag", fontWeight = FontWeight.Bold) },
+            text = { Text("이 태그를 어떻게 관리할까요?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    tagActionTarget = null
+                    tagToRename = tag
+                    tagToDelete = null
+                    showTagManager = true
+                }) {
+                    Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
+                    Text(" 이름 바꾸기")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    tagActionTarget = null
+                    tagToDelete = tag
+                    tagToRename = null
+                    showTagManager = true
+                }) {
+                    Icon(
+                        Icons.Default.Delete,
+                        null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color(0xFFC44747)
+                    )
+                    Text(" 태그 삭제", color = Color(0xFFC44747))
+                }
+            }
         )
     }
 }
@@ -1342,6 +1380,7 @@ private fun TagManagerDialog(
     tags: List<String>,
     groups: Map<String, Set<String>>,
     initialRenamingTag: String? = null,
+    initialDeletingTag: String? = null,
     onDismiss: () -> Unit,
     onRename: (String, String) -> Boolean,
     onDelete: (String) -> Unit,
@@ -1349,7 +1388,7 @@ private fun TagManagerDialog(
     onDeleteGroup: (String) -> Unit
 ) {
     var renamingTag by remember(initialRenamingTag) { mutableStateOf(initialRenamingTag) }
-    var deletingTag by remember { mutableStateOf<String?>(null) }
+    var deletingTag by remember(initialDeletingTag) { mutableStateOf(initialDeletingTag) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var showGroupEditor by remember { mutableStateOf(false) }
     var deletingGroup by remember { mutableStateOf<String?>(null) }
