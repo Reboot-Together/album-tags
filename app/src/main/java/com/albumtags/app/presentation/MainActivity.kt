@@ -266,6 +266,7 @@ private fun AlbumListScreen(
     var selectedAlbumIds by remember { mutableStateOf(emptySet<String>()) }
     var showBulkTagEditor by remember { mutableStateOf(false) }
     var showTagManager by remember { mutableStateOf(false) }
+    var tagToRename by remember { mutableStateOf<String?>(null) }
     val availableTags = state.allTags.toSet()
     val visibleTagGroups = state.tagGroups
         .toSortedMap()
@@ -329,7 +330,10 @@ private fun AlbumListScreen(
                 ) {
                     Text("필터", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { showTagManager = true }) {
+                    TextButton(onClick = {
+                        tagToRename = null
+                        showTagManager = true
+                    }) {
                         Text("태그 관리")
                     }
                     if (state.selectedTags.isNotEmpty()) {
@@ -364,9 +368,13 @@ private fun AlbumListScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         tags.sorted().forEach { tag ->
-                            FilterChip(
+                            LongPressEditableTagChip(
                                 selected = tag in state.selectedTags,
                                 onClick = { onToggleTag(tag) },
+                                onLongClick = {
+                                    tagToRename = tag
+                                    showTagManager = true
+                                },
                                 label = { Text(tag) }
                             )
                         }
@@ -387,9 +395,13 @@ private fun AlbumListScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         ungroupedTags.forEach { tag ->
-                            FilterChip(
+                            LongPressEditableTagChip(
                                 selected = tag in state.selectedTags,
                                 onClick = { onToggleTag(tag) },
+                                onLongClick = {
+                                    tagToRename = tag
+                                    showTagManager = true
+                                },
                                 label = { Text(tag) }
                             )
                         }
@@ -515,13 +527,35 @@ private fun AlbumListScreen(
         TagManagerDialog(
             tags = state.allTags,
             groups = state.tagGroups,
-            onDismiss = { showTagManager = false },
+            initialRenamingTag = tagToRename,
+            onDismiss = {
+                showTagManager = false
+                tagToRename = null
+            },
             onRename = onRenameTag,
             onDelete = onDeleteTag,
             onSaveGroup = onSaveTagGroup,
             onDeleteGroup = onDeleteTagGroup
         )
     }
+}
+
+@Composable
+private fun LongPressEditableTagChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    label: @Composable () -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = {},
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        ),
+        label = label
+    )
 }
 
 @Composable
@@ -853,18 +887,19 @@ private fun ZoomablePhoto(
 private fun TagManagerDialog(
     tags: List<String>,
     groups: Map<String, Set<String>>,
+    initialRenamingTag: String? = null,
     onDismiss: () -> Unit,
     onRename: (String, String) -> Boolean,
     onDelete: (String) -> Unit,
     onSaveGroup: (String?, String, Set<String>) -> Boolean,
     onDeleteGroup: (String) -> Unit
 ) {
-    var renamingTag by remember { mutableStateOf<String?>(null) }
+    var renamingTag by remember(initialRenamingTag) { mutableStateOf(initialRenamingTag) }
     var deletingTag by remember { mutableStateOf<String?>(null) }
     var editingGroup by remember { mutableStateOf<String?>(null) }
     var showGroupEditor by remember { mutableStateOf(false) }
     var deletingGroup by remember { mutableStateOf<String?>(null) }
-    var newName by remember { mutableStateOf("") }
+    var newName by remember(initialRenamingTag) { mutableStateOf(initialRenamingTag.orEmpty()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
