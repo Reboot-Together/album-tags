@@ -702,15 +702,26 @@ private fun LongPressEditableTagChip(
     onLongClick: () -> Unit,
     label: @Composable () -> Unit
 ) {
-    FilterChip(
-        selected = selected,
-        onClick = {},
+    Surface(
         modifier = Modifier.combinedClickable(
             onClick = onClick,
             onLongClick = onLongClick
         ),
-        label = label
-    )
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) Indigo.copy(alpha = 0.14f) else Color.Transparent,
+        contentColor = if (selected) Indigo else Color(0xFF3F424B),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) Indigo else Color(0xFF777B88)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            label()
+        }
+    }
 }
 
 @Composable
