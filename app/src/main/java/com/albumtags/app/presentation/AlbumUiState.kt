@@ -12,7 +12,7 @@ data class AlbumUiState(
     val tagGroups: Map<String, Set<String>> = emptyMap(),
     val selectedTags: Set<String> = emptySet(),
     val query: String = "",
-    val matchMode: TagMatchMode = TagMatchMode.ALL,
+    val matchMode: TagMatchMode = TagMatchMode.ANY,
     val showUntaggedOnly: Boolean = false,
     val isLoading: Boolean = true,
     val permissionGranted: Boolean = false,
