@@ -142,6 +142,21 @@ class AlbumViewModel(
         )
     }
 
+    fun refreshOpenedAlbum() {
+        val albumId = _uiState.value.openedAlbumId ?: return
+        viewModelScope.launch {
+            val albums = albumCoverUseCases.apply(albumUseCases.loadAlbums())
+            val photos = albumUseCases.loadPhotos(albumId)
+            _uiState.update {
+                it.copy(
+                    albums = albums,
+                    albumPhotos = photos,
+                    arePhotosLoading = false
+                )
+            }
+        }
+    }
+
     fun setAlbumCover(albumId: String, media: AlbumPhoto) {
         val cover = albumCoverUseCases.set(albumId, media)
         _uiState.update { state ->

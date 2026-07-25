@@ -7,11 +7,13 @@ package com.albumtags.app.presentation
 
 import android.Manifest
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.widget.Toast
 import com.albumtags.app.AlbumTagsApplication
 import com.albumtags.app.domain.model.AlbumPhoto
@@ -21,6 +23,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
@@ -66,6 +69,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -105,6 +110,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,9 +141,13 @@ import coil3.video.VideoFrameDecoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val Indigo = Color(0xFF5757D9)
 private val Background = Color(0xFFF8F9FC)
+private enum class FileOperation { COPY, MOVE }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -224,12 +234,14 @@ private fun AlbumTagsApp() {
     } else if (state.openedAlbum != null) {
         AlbumDetailScreen(
             album = state.openedAlbum!!,
+            albums = state.albums,
             photos = state.albumPhotos,
             tags = state.tagMap[state.openedAlbum!!.bucketId].orEmpty(),
             allTags = state.allTags,
             isLoading = state.arePhotosLoading,
             onBack = viewModel::closeAlbum,
             onSaveTags = viewModel::saveTags,
+            onMediaChanged = viewModel::refreshOpenedAlbum,
             onSetAlbumCover = { albumId, media ->
                 viewModel.setAlbumCover(albumId, media)
                 Toast.makeText(
@@ -870,20 +882,51 @@ private fun AlbumCard(
 @Composable
 private fun AlbumDetailScreen(
     album: PhotoAlbum,
+    albums: List<PhotoAlbum>,
     photos: List<AlbumPhoto>,
     tags: Set<String>,
     allTags: List<String>,
     isLoading: Boolean,
     onBack: () -> Unit,
     onSaveTags: (String, Set<String>) -> Unit,
+    onMediaChanged: () -> Unit,
     onSetAlbumCover: (String, AlbumPhoto) -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var editingTags by remember { mutableStateOf(false) }
     var showAlbumInfo by remember { mutableStateOf(false) }
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
     var selectedMediaUris by remember { mutableStateOf(emptySet<String>()) }
+    var destinationOperation by remember { mutableStateOf<FileOperation?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pendingMove by remember {
+        mutableStateOf<Pair<List<AlbumPhoto>, PhotoAlbum>?>(null)
+    }
     val mediaSelectionMode = selectedMediaUris.isNotEmpty()
+    val writePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pending = pendingMove
+        pendingMove = null
+        if (result.resultCode == android.app.Activity.RESULT_OK && pending != null) {
+            coroutineScope.launch {
+                moveMediaFiles(context, pending.first, pending.second.relativePath)
+                selectedMediaUris = emptySet()
+                onMediaChanged()
+                Toast.makeText(context, "파일을 이동했어요.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val deletePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            selectedMediaUris = emptySet()
+            onMediaChanged()
+            Toast.makeText(context, "파일을 삭제했어요.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     BackHandler(enabled = selectedPhotoIndex == null) {
         if (mediaSelectionMode) selectedMediaUris = emptySet() else onBack()
@@ -912,11 +955,24 @@ private fun AlbumDetailScreen(
                 )
             }
             if (mediaSelectionMode) {
+                IconButton(onClick = { destinationOperation = FileOperation.MOVE }) {
+                    Icon(Icons.Default.DriveFileMove, "다른 앨범으로 이동", tint = Indigo)
+                }
+                IconButton(onClick = { destinationOperation = FileOperation.COPY }) {
+                    Icon(Icons.Default.ContentCopy, "다른 앨범으로 복사", tint = Indigo)
+                }
                 IconButton(onClick = {
                     val selected = photos.filter { it.uri in selectedMediaUris }
                     shareMedia(context, selected)
                 }) {
                     Icon(Icons.Default.Share, "선택한 미디어 공유", tint = Indigo)
+                }
+                IconButton(onClick = { showDeleteConfirm = true }) {
+                    Icon(
+                        Icons.Default.Delete,
+                        "선택한 파일 삭제",
+                        tint = Color(0xFFC44747)
+                    )
                 }
                 IconButton(
                     enabled = selectedMediaUris.size == 1,
@@ -1074,6 +1130,154 @@ private fun AlbumDetailScreen(
         )
     }
 
+    destinationOperation?.let { operation ->
+        val destinations = albums.filter {
+            it.bucketId != album.bucketId && it.relativePath.isNotBlank()
+        }.sortedBy { it.name.lowercase() }
+        AlertDialog(
+            onDismissRequest = { destinationOperation = null },
+            title = {
+                Text(
+                    if (operation == FileOperation.MOVE) "이동할 앨범" else "복사할 앨범",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                if (destinations.isEmpty()) {
+                    Text("이동하거나 복사할 수 있는 다른 앨범이 없습니다.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 420.dp)
+                    ) {
+                        items(destinations, key = { it.bucketId }) { destination ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val selected =
+                                            photos.filter { it.uri in selectedMediaUris }
+                                        destinationOperation = null
+                                        if (operation == FileOperation.COPY) {
+                                            coroutineScope.launch {
+                                                copyMediaFiles(
+                                                    context,
+                                                    selected,
+                                                    destination.relativePath
+                                                )
+                                                selectedMediaUris = emptySet()
+                                                onMediaChanged()
+                                                Toast.makeText(
+                                                    context,
+                                                    "파일을 복사했어요.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } else if (Build.VERSION.SDK_INT >= 30) {
+                                            pendingMove = selected to destination
+                                            val request = MediaStore.createWriteRequest(
+                                                context.contentResolver,
+                                                selected.map { Uri.parse(it.uri) }
+                                            )
+                                            writePermissionLauncher.launch(
+                                                IntentSenderRequest.Builder(
+                                                    request.intentSender
+                                                ).build()
+                                            )
+                                        } else {
+                                            coroutineScope.launch {
+                                                moveMediaFiles(
+                                                    context,
+                                                    selected,
+                                                    destination.relativePath
+                                                )
+                                                selectedMediaUris = emptySet()
+                                                onMediaChanged()
+                                            }
+                                        }
+                                    }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = remember(
+                                        destination.coverUri,
+                                        destination.coverIsVideo
+                                    ) {
+                                        thumbnailModel(
+                                            context,
+                                            destination.coverUri,
+                                            destination.coverIsVideo
+                                        )
+                                    },
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .background(
+                                            Color(0xFFE9EAF0),
+                                            RoundedCornerShape(9.dp)
+                                        ),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Text(
+                                    destination.name,
+                                    modifier = Modifier.padding(start = 12.dp),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { destinationOperation = null }) {
+                    Text("취소")
+                }
+            }
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("파일 삭제", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "선택한 ${selectedMediaUris.size}개 파일을 기기에서 영구적으로 삭제할까요?\n" +
+                        "삼성 갤러리에서도 함께 사라집니다."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showDeleteConfirm = false
+                    val selected = photos.filter { it.uri in selectedMediaUris }
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        val request = MediaStore.createDeleteRequest(
+                            context.contentResolver,
+                            selected.map { Uri.parse(it.uri) }
+                        )
+                        deletePermissionLauncher.launch(
+                            IntentSenderRequest.Builder(request.intentSender).build()
+                        )
+                    } else {
+                        coroutineScope.launch {
+                            deleteMediaFiles(context, selected)
+                            selectedMediaUris = emptySet()
+                            onMediaChanged()
+                        }
+                    }
+                }) {
+                    Text("영구 삭제")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("취소")
+                }
+            }
+        )
+    }
+
     selectedPhotoIndex?.let { initialIndex ->
         FullScreenPhotoViewer(
             photos = photos,
@@ -1191,6 +1395,83 @@ private fun shareMedia(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     )
+}
+
+private suspend fun copyMediaFiles(
+    context: android.content.Context,
+    media: List<AlbumPhoto>,
+    destinationPath: String
+) = withContext(Dispatchers.IO) {
+    val resolver = context.contentResolver
+    media.forEach { item ->
+        val sourceUri = Uri.parse(item.uri)
+        val displayName = resolver.query(
+            sourceUri,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: "media_${item.id}"
+        val collection = if (item.isVideo) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, item.mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, destinationPath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val destinationUri = resolver.insert(collection, values) ?: return@forEach
+        val copied = runCatching {
+            resolver.openInputStream(sourceUri)?.use { input ->
+                resolver.openOutputStream(destinationUri)?.use { output ->
+                    input.copyTo(output)
+                } ?: error("출력 파일을 열 수 없습니다.")
+            } ?: error("원본 파일을 열 수 없습니다.")
+        }.isSuccess
+        if (copied) {
+            resolver.update(
+                destinationUri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                },
+                null,
+                null
+            )
+        } else {
+            resolver.delete(destinationUri, null, null)
+        }
+    }
+}
+
+private suspend fun moveMediaFiles(
+    context: android.content.Context,
+    media: List<AlbumPhoto>,
+    destinationPath: String
+) = withContext(Dispatchers.IO) {
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.RELATIVE_PATH, destinationPath)
+    }
+    media.forEach { item ->
+        runCatching {
+            context.contentResolver.update(Uri.parse(item.uri), values, null, null)
+        }
+    }
+}
+
+private suspend fun deleteMediaFiles(
+    context: android.content.Context,
+    media: List<AlbumPhoto>
+) = withContext(Dispatchers.IO) {
+    media.forEach { item ->
+        runCatching {
+            context.contentResolver.delete(Uri.parse(item.uri), null, null)
+        }
+    }
 }
 
 @Composable
