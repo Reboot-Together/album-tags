@@ -5,13 +5,14 @@
         android:maxSdkVersion="32" />
 
     <application
+        android:name=".AlbumTagsApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="앨범태그"
         android:supportsRtl="true"
         android:theme="@style/Theme.AlbumTags">
         <activity
-            android:name=".MainActivity"
+        android:name=".presentation.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

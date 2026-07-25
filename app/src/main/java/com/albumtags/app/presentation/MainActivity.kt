@@ -3,12 +3,15 @@
     androidx.compose.foundation.ExperimentalFoundationApi::class
 )
 
-package com.albumtags.app
+package com.albumtags.app.presentation
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import com.albumtags.app.AlbumTagsApplication
+import com.albumtags.app.domain.model.AlbumPhoto
+import com.albumtags.app.domain.model.PhotoAlbum
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -119,9 +122,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AlbumTagsApp(viewModel: AlbumViewModel = viewModel()) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
+private fun AlbumTagsApp() {
     val context = LocalContext.current
+    val application = context.applicationContext as AlbumTagsApplication
+    val viewModel: AlbumViewModel = viewModel(
+        factory = AlbumViewModel.Factory(application.container)
+    )
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val permission = if (Build.VERSION.SDK_INT >= 33) {
         Manifest.permission.READ_MEDIA_IMAGES
     } else {

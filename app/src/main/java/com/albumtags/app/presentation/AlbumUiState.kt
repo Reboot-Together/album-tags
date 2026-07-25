@@ -1,20 +1,7 @@
-package com.albumtags.app
+package com.albumtags.app.presentation
 
-import android.net.Uri
-
-data class PhotoAlbum(
-    val bucketId: String,
-    val name: String,
-    val coverUri: Uri,
-    val photoCount: Int,
-    val newestDateSeconds: Long
-)
-
-data class AlbumPhoto(
-    val id: Long,
-    val uri: Uri,
-    val dateTakenMillis: Long
-)
+import com.albumtags.app.domain.model.AlbumPhoto
+import com.albumtags.app.domain.model.PhotoAlbum
 
 enum class TagMatchMode { ALL, ANY }
 
