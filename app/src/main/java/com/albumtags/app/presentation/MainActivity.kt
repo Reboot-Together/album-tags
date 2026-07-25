@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -934,7 +935,12 @@ private fun AlbumDetailScreen(
         if (mediaSelectionMode) selectedMediaUris = emptySet() else onBack()
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Background)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Background)
+            .statusBarsPadding()
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 12.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically
