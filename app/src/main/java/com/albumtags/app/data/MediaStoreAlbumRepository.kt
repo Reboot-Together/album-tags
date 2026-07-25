@@ -67,7 +67,8 @@ class MediaStoreAlbumRepository(
                         oldestDateSeconds = takenSeconds,
                         newestCaptureDateSeconds = takenSeconds,
                         relativePath = cursor.getString(pathColumn).orEmpty(),
-                        videoCount = if (isVideo) 1 else 0
+                        videoCount = if (isVideo) 1 else 0,
+                        coverIsVideo = isVideo
                     )
                 } else {
                     current.count++
@@ -89,7 +90,8 @@ class MediaStoreAlbumRepository(
                 it.oldestDateSeconds,
                 it.newestCaptureDateSeconds,
                 it.relativePath,
-                it.videoCount
+                it.videoCount,
+                it.coverIsVideo
             )
         }.sortedByDescending { it.newestDateSeconds }
     }
@@ -158,6 +160,7 @@ class MediaStoreAlbumRepository(
         var oldestDateSeconds: Long,
         var newestCaptureDateSeconds: Long,
         val relativePath: String,
-        var videoCount: Int
+        var videoCount: Int,
+        val coverIsVideo: Boolean
     )
 }

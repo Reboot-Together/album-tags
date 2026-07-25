@@ -9,7 +9,8 @@ data class PhotoAlbum(
     val oldestDateSeconds: Long = newestDateSeconds,
     val newestCaptureDateSeconds: Long = newestDateSeconds,
     val relativePath: String = "",
-    val videoCount: Int = 0
+    val videoCount: Int = 0,
+    val coverIsVideo: Boolean = false
 )
 
 data class AlbumPhoto(

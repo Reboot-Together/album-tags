@@ -121,6 +121,8 @@ import androidx.media3.ui.PlayerView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.video.VideoFrameDecoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -737,6 +739,7 @@ private fun AlbumCard(
     onMoveUp: () -> Unit = {},
     onMoveDown: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -751,7 +754,9 @@ private fun AlbumCard(
     ) {
         Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = album.coverUri,
+                model = remember(album.coverUri, album.coverIsVideo) {
+                    thumbnailModel(context, album.coverUri, album.coverIsVideo)
+                },
                 contentDescription = "${album.name} 대표 사진",
                 modifier = Modifier.size(92.dp).background(Color(0xFFE9EAF0), RoundedCornerShape(14.dp)),
                 contentScale = ContentScale.Crop
@@ -952,7 +957,9 @@ private fun AlbumDetailScreen(
                             )
                     ) {
                         AsyncImage(
-                            model = photo.uri,
+                            model = remember(photo.uri) {
+                                thumbnailModel(context, photo.uri, photo.isVideo)
+                            },
                             contentDescription = if (photo.isVideo) "앨범 동영상" else "앨범 사진",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -1029,6 +1036,7 @@ private fun AlbumInfoDialog(
     album: PhotoAlbum,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("yyyy년 M월 d일", Locale.getDefault()) }
     fun formatDate(seconds: Long): String =
         if (seconds > 0) dateFormat.format(Date(seconds * 1_000L)) else "정보 없음"
@@ -1039,7 +1047,9 @@ private fun AlbumInfoDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AsyncImage(
-                    model = album.coverUri,
+                    model = remember(album.coverUri, album.coverIsVideo) {
+                        thumbnailModel(context, album.coverUri, album.coverIsVideo)
+                    },
                     contentDescription = "${album.name} 대표 사진",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1070,6 +1080,18 @@ private fun AlbumInfoDialog(
             TextButton(onClick = onDismiss) { Text("닫기") }
         }
     )
+}
+
+private fun thumbnailModel(
+    context: android.content.Context,
+    uri: String,
+    isVideo: Boolean
+): Any {
+    if (!isVideo) return uri
+    return ImageRequest.Builder(context)
+        .data(uri)
+        .decoderFactory(VideoFrameDecoder.Factory())
+        .build()
 }
 
 @Composable
