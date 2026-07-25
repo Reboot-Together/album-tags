@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,6 +61,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -1942,6 +1944,7 @@ private fun TagGroupEditorDialog(
         normalizedName in existingGroupNames
 
     AlertDialog(
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = {
             Text(
@@ -2026,10 +2029,15 @@ private fun BulkTagDialog(
     var input by remember { mutableStateOf("") }
 
     AlertDialog(
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = { Text("${albumCount}개 앨범에 태그 추가", fontWeight = FontWeight.Bold) },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text(
                     "각 앨범의 기존 태그는 그대로 유지됩니다.",
                     color = Color(0xFF626673)
@@ -2141,10 +2149,15 @@ private fun TagEditorDialog(
     }
 
     AlertDialog(
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = { Text(album.name, fontWeight = FontWeight.Bold) },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text("이 앨범과 관련된 사람·그룹·장소를 자유롭게 추가하세요.",
                     color = Color(0xFF626673))
                 Spacer(Modifier.height(14.dp))
@@ -2157,6 +2170,7 @@ private fun TagEditorDialog(
                     trailingIcon = {
                         IconButton(onClick = ::addInputTag) { Icon(Icons.Default.Add, "추가") }
                     },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { addInputTag() }),
                     singleLine = true
                 )
