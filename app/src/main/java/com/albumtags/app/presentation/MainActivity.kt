@@ -499,21 +499,15 @@ private fun AlbumListScreen(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            tags.sorted().chunked(2).forEach { tagColumn ->
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    tagColumn.forEach { tag ->
-                                        LongPressEditableTagChip(
-                                            selected = tag in state.selectedTags,
-                                            onClick = { onToggleTag(tag) },
-                                            onLongClick = {
-                                                tagActionTarget = tag
-                                            },
-                                            label = { Text(tag) }
-                                        )
-                                    }
-                                }
+                            tags.sorted().forEach { tag ->
+                                LongPressEditableTagChip(
+                                    selected = tag in state.selectedTags,
+                                    onClick = { onToggleTag(tag) },
+                                    onLongClick = {
+                                        tagActionTarget = tag
+                                    },
+                                    label = { Text(tag) }
+                                )
                             }
                         }
                     }
