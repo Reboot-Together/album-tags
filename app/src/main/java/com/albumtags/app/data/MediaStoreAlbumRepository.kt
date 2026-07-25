@@ -74,8 +74,14 @@ class MediaStoreAlbumRepository(
                     current.count++
                     current.oldestDateSeconds =
                         minOf(current.oldestDateSeconds, takenSeconds)
-                    current.newestCaptureDateSeconds =
-                        maxOf(current.newestCaptureDateSeconds, takenSeconds)
+                    if (takenSeconds > current.newestCaptureDateSeconds) {
+                        current.newestCaptureDateSeconds = takenSeconds
+                        current.coverUri = ContentUris.withAppendedId(
+                            collection,
+                            imageId
+                        ).toString()
+                        current.coverIsVideo = isVideo
+                    }
                     if (isVideo) current.videoCount++
                 }
             }
@@ -154,13 +160,13 @@ class MediaStoreAlbumRepository(
     private data class MutableAlbum(
         val bucketId: String,
         val name: String,
-        val coverUri: String,
+        var coverUri: String,
         var count: Int,
         val newestDateSeconds: Long,
         var oldestDateSeconds: Long,
         var newestCaptureDateSeconds: Long,
         val relativePath: String,
         var videoCount: Int,
-        val coverIsVideo: Boolean
+        var coverIsVideo: Boolean
     )
 }
