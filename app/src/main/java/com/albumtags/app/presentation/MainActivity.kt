@@ -848,21 +848,7 @@ private fun AlbumDetailScreen(
             if (mediaSelectionMode) {
                 IconButton(onClick = {
                     val selected = photos.filter { it.uri in selectedMediaUris }
-                    val uris = ArrayList(selected.map { Uri.parse(it.uri) })
-                    val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                        type = if (selected.all { it.isVideo }) "video/*"
-                        else if (selected.none { it.isVideo }) "image/*" else "*/*"
-                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        clipData = ClipData.newUri(
-                            context.contentResolver,
-                            "선택한 미디어",
-                            uris.first()
-                        ).also { clip ->
-                            uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
-                        }
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "공유"))
+                    shareMedia(context, selected)
                 }) {
                     Icon(Icons.Default.Share, "선택한 미디어 공유", tint = Indigo)
                 }
@@ -1026,6 +1012,7 @@ private fun AlbumDetailScreen(
         FullScreenPhotoViewer(
             photos = photos,
             initialIndex = initialIndex,
+            onShare = { shareMedia(context, listOf(it)) },
             onDismiss = { selectedPhotoIndex = null }
         )
     }
@@ -1094,6 +1081,49 @@ private fun thumbnailModel(
         .build()
 }
 
+private fun shareMedia(
+    context: android.content.Context,
+    media: List<AlbumPhoto>
+) {
+    if (media.isEmpty()) return
+    val uris = media.map { Uri.parse(it.uri) }
+    val commonType = when {
+        media.all { it.isVideo } -> "video/*"
+        media.none { it.isVideo } -> "image/*"
+        else -> "*/*"
+    }
+    val shareIntent = if (media.size == 1) {
+        Intent(Intent.ACTION_SEND).apply {
+            type = media.first().mimeType.ifBlank { commonType }
+            putExtra(Intent.EXTRA_STREAM, uris.first())
+            clipData = ClipData.newUri(
+                context.contentResolver,
+                "공유할 미디어",
+                uris.first()
+            )
+        }
+    } else {
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = commonType
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            clipData = ClipData.newUri(
+                context.contentResolver,
+                "공유할 미디어",
+                uris.first()
+            ).also { clip ->
+                uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+            }
+        }
+    }.apply {
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(
+        Intent.createChooser(shareIntent, "외부 앱으로 공유").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    )
+}
+
 @Composable
 private fun AlbumInfoRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth()) {
@@ -1115,6 +1145,7 @@ private fun AlbumInfoRow(label: String, value: String) {
 private fun FullScreenPhotoViewer(
     photos: List<AlbumPhoto>,
     initialIndex: Int,
+    onShare: (AlbumPhoto) -> Unit,
     onDismiss: () -> Unit
 ) {
     val pagerState = rememberPagerState(
@@ -1139,6 +1170,7 @@ private fun FullScreenPhotoViewer(
                 if (photos[page].isVideo) {
                     FullScreenVideo(
                         media = photos[page],
+                        isActive = page == pagerState.currentPage,
                         onTap = { controlsVisible = !controlsVisible }
                     )
                 } else {
@@ -1150,6 +1182,15 @@ private fun FullScreenPhotoViewer(
             }
 
             if (controlsVisible) {
+                IconButton(
+                    onClick = { onShare(photos[pagerState.currentPage]) },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(14.dp)
+                        .background(Color.Black.copy(alpha = 0.58f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Share, "외부 앱으로 공유", tint = Color.White)
+                }
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
@@ -1199,6 +1240,7 @@ private fun FullScreenPhotoViewer(
 @Composable
 private fun FullScreenVideo(
     media: AlbumPhoto,
+    isActive: Boolean,
     onTap: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1206,8 +1248,11 @@ private fun FullScreenVideo(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.uri)))
             prepare()
-            playWhenReady = true
+            playWhenReady = false
         }
+    }
+    LaunchedEffect(isActive, player) {
+        if (!isActive) player.pause()
     }
     DisposableEffect(player) {
         onDispose { player.release() }
