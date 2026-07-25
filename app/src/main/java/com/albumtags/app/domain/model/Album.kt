@@ -1,5 +1,10 @@
 package com.albumtags.app.domain.model
 
+data class AlbumCover(
+    val uri: String,
+    val isVideo: Boolean
+)
+
 data class PhotoAlbum(
     val bucketId: String,
     val name: String,

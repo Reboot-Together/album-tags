@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.albumtags.app.di.AppContainer
 import com.albumtags.app.domain.model.TagState
+import com.albumtags.app.domain.model.AlbumPhoto
+import com.albumtags.app.domain.usecase.AlbumCoverUseCases
 import com.albumtags.app.domain.usecase.AlbumUseCases
 import com.albumtags.app.domain.usecase.TagUseCases
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,7 @@ import kotlinx.coroutines.launch
 
 class AlbumViewModel(
     private val albumUseCases: AlbumUseCases,
+    private val albumCoverUseCases: AlbumCoverUseCases,
     private val tagUseCases: TagUseCases
 ) : ViewModel() {
     private val initialTags = tagUseCases.load()
@@ -34,7 +37,7 @@ class AlbumViewModel(
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val albums = albumUseCases.loadAlbums()
+            val albums = albumCoverUseCases.apply(albumUseCases.loadAlbums())
             applyTagState(tagUseCases.load()) {
                 it.copy(albums = albums, isLoading = false)
             }
@@ -139,6 +142,24 @@ class AlbumViewModel(
         )
     }
 
+    fun setAlbumCover(albumId: String, media: AlbumPhoto) {
+        val cover = albumCoverUseCases.set(albumId, media)
+        _uiState.update { state ->
+            state.copy(
+                albums = state.albums.map { album ->
+                    if (album.bucketId == albumId) {
+                        album.copy(
+                            coverUri = cover.uri,
+                            coverIsVideo = cover.isVideo
+                        )
+                    } else {
+                        album
+                    }
+                }
+            )
+        }
+    }
+
     fun exportTags(): String = tagUseCases.exportBackup()
 
     fun importTags(contents: String): Boolean {
@@ -162,6 +183,10 @@ class AlbumViewModel(
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            AlbumViewModel(container.albumUseCases, container.tagUseCases) as T
+            AlbumViewModel(
+                container.albumUseCases,
+                container.albumCoverUseCases,
+                container.tagUseCases
+            ) as T
     }
 }

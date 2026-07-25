@@ -12,6 +12,7 @@ import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import com.albumtags.app.AlbumTagsApplication
 import com.albumtags.app.domain.model.AlbumPhoto
 import com.albumtags.app.domain.model.PhotoAlbum
@@ -66,6 +67,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -212,7 +214,15 @@ private fun AlbumTagsApp() {
             allTags = state.allTags,
             isLoading = state.arePhotosLoading,
             onBack = viewModel::closeAlbum,
-            onSaveTags = viewModel::saveTags
+            onSaveTags = viewModel::saveTags,
+            onSetAlbumCover = { albumId, media ->
+                viewModel.setAlbumCover(albumId, media)
+                Toast.makeText(
+                    context,
+                    "앨범 대표 미디어로 설정했어요.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         )
     } else {
         AlbumListScreen(
@@ -848,7 +858,8 @@ private fun AlbumDetailScreen(
     allTags: List<String>,
     isLoading: Boolean,
     onBack: () -> Unit,
-    onSaveTags: (String, Set<String>) -> Unit
+    onSaveTags: (String, Set<String>) -> Unit,
+    onSetAlbumCover: (String, AlbumPhoto) -> Unit
 ) {
     val context = LocalContext.current
     var editingTags by remember { mutableStateOf(false) }
@@ -1051,6 +1062,9 @@ private fun AlbumDetailScreen(
             photos = photos,
             initialIndex = initialIndex,
             onShare = { shareMedia(context, listOf(it)) },
+            onSetAlbumCover = {
+                onSetAlbumCover(album.bucketId, it)
+            },
             onDismiss = { selectedPhotoIndex = null }
         )
     }
@@ -1184,6 +1198,7 @@ private fun FullScreenPhotoViewer(
     photos: List<AlbumPhoto>,
     initialIndex: Int,
     onShare: (AlbumPhoto) -> Unit,
+    onSetAlbumCover: (AlbumPhoto) -> Unit,
     onDismiss: () -> Unit
 ) {
     val pagerState = rememberPagerState(
@@ -1220,14 +1235,31 @@ private fun FullScreenPhotoViewer(
             }
 
             if (controlsVisible) {
-                IconButton(
-                    onClick = { onShare(photos[pagerState.currentPage]) },
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(14.dp)
-                        .background(Color.Black.copy(alpha = 0.58f), CircleShape)
+                        .background(
+                            Color.Black.copy(alpha = 0.58f),
+                            RoundedCornerShape(24.dp)
+                        )
                 ) {
-                    Icon(Icons.Default.Share, "외부 앱으로 공유", tint = Color.White)
+                    IconButton(
+                        onClick = { onShare(photos[pagerState.currentPage]) }
+                    ) {
+                        Icon(Icons.Default.Share, "외부 앱으로 공유", tint = Color.White)
+                    }
+                    IconButton(
+                        onClick = {
+                            onSetAlbumCover(photos[pagerState.currentPage])
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            "앨범 대표 미디어로 설정",
+                            tint = Color.White
+                        )
+                    }
                 }
                 IconButton(
                     onClick = onDismiss,
