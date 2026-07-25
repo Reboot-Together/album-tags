@@ -13,73 +13,121 @@ class MediaStoreAlbumRepository(
     private val context: Context
 ) : AlbumRepository {
     override suspend fun getAlbums(): List<PhotoAlbum> = withContext(Dispatchers.IO) {
+        val collection = MediaStore.Files.getContentUri("external")
         val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.BUCKET_ID,
-            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-            MediaStore.Images.Media.DATE_ADDED
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.MEDIA_TYPE,
+            MediaStore.Files.FileColumns.BUCKET_ID,
+            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Images.ImageColumns.DATE_TAKEN,
+            MediaStore.Files.FileColumns.RELATIVE_PATH
         )
         val albums = linkedMapOf<String, MutableAlbum>()
         context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            collection,
             projection,
-            null,
-            null,
-            "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)",
+            arrayOf(
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+            ),
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
         )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val bucketColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val mediaTypeColumn =
+                cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val bucketColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
             val nameColumn =
-                cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
-            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val takenColumn =
+                cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN)
+            val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
             while (cursor.moveToNext()) {
                 val bucketId = cursor.getString(bucketColumn) ?: continue
                 val imageId = cursor.getLong(idColumn)
                 val date = cursor.getLong(dateColumn)
+                val takenSeconds = cursor.getLong(takenColumn).let {
+                    if (it > 0) it / 1_000L else date
+                }
+                val isVideo = cursor.getInt(mediaTypeColumn) ==
+                    MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
                 val current = albums[bucketId]
                 if (current == null) {
                     albums[bucketId] = MutableAlbum(
                         bucketId = bucketId,
                         name = cursor.getString(nameColumn) ?: "이름 없는 앨범",
                         coverUri = ContentUris.withAppendedId(
-                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            collection,
                             imageId
                         ).toString(),
                         count = 1,
-                        newestDateSeconds = date
+                        newestDateSeconds = date,
+                        oldestDateSeconds = takenSeconds,
+                        newestCaptureDateSeconds = takenSeconds,
+                        relativePath = cursor.getString(pathColumn).orEmpty(),
+                        videoCount = if (isVideo) 1 else 0
                     )
                 } else {
                     current.count++
+                    current.oldestDateSeconds =
+                        minOf(current.oldestDateSeconds, takenSeconds)
+                    current.newestCaptureDateSeconds =
+                        maxOf(current.newestCaptureDateSeconds, takenSeconds)
+                    if (isVideo) current.videoCount++
                 }
             }
         }
         albums.values.map {
-            PhotoAlbum(it.bucketId, it.name, it.coverUri, it.count, it.newestDateSeconds)
+            PhotoAlbum(
+                it.bucketId,
+                it.name,
+                it.coverUri,
+                it.count,
+                it.newestDateSeconds,
+                it.oldestDateSeconds,
+                it.newestCaptureDateSeconds,
+                it.relativePath,
+                it.videoCount
+            )
         }.sortedByDescending { it.newestDateSeconds }
     }
 
     override suspend fun getPhotos(albumId: String): List<AlbumPhoto> =
         withContext(Dispatchers.IO) {
+            val collection = MediaStore.Files.getContentUri("external")
             val projection = arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DATE_TAKEN,
-                MediaStore.Images.Media.DATE_ADDED
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.MEDIA_TYPE,
+                MediaStore.Files.FileColumns.DATE_ADDED,
+                MediaStore.Files.FileColumns.MIME_TYPE,
+                MediaStore.Images.ImageColumns.DATE_TAKEN
             )
             val photos = mutableListOf<AlbumPhoto>()
             context.contentResolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                collection,
                 projection,
-                "${MediaStore.Images.Media.BUCKET_ID} = ?",
-                arrayOf(albumId),
-                "${MediaStore.Images.Media.DATE_TAKEN} DESC, " +
-                    "${MediaStore.Images.Media.DATE_ADDED} DESC"
+                "${MediaStore.Files.FileColumns.BUCKET_ID} = ? AND " +
+                    "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?)",
+                arrayOf(
+                    albumId,
+                    MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
+                    MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
+                ),
+                "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC, " +
+                    "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
             )?.use { cursor ->
                 val idColumn =
-                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val mediaTypeColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
                 val takenColumn =
-                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                    cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN)
                 val addedColumn =
-                    cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                    cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+                val mimeColumn =
+                    cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
                     val taken = cursor.getLong(takenColumn)
@@ -87,10 +135,14 @@ class MediaStoreAlbumRepository(
                     photos += AlbumPhoto(
                         id = id,
                         uri = ContentUris.withAppendedId(
-                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            collection,
                             id
                         ).toString(),
-                        dateTakenMillis = if (taken > 0) taken else addedMillis
+                        dateTakenMillis = if (taken > 0) taken else addedMillis,
+                        dateAddedMillis = addedMillis,
+                        mimeType = cursor.getString(mimeColumn).orEmpty(),
+                        isVideo = cursor.getInt(mediaTypeColumn) ==
+                            MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
                     )
                 }
             }
@@ -102,6 +154,10 @@ class MediaStoreAlbumRepository(
         val name: String,
         val coverUri: String,
         var count: Int,
-        val newestDateSeconds: Long
+        val newestDateSeconds: Long,
+        var oldestDateSeconds: Long,
+        var newestCaptureDateSeconds: Long,
+        val relativePath: String,
+        var videoCount: Int
     )
 }

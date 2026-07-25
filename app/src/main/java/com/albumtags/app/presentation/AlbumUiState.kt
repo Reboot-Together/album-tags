@@ -4,6 +4,7 @@ import com.albumtags.app.domain.model.AlbumPhoto
 import com.albumtags.app.domain.model.PhotoAlbum
 
 enum class TagMatchMode { ALL, ANY }
+enum class AlbumSortMode { NEWEST, OLDEST, NAME, COUNT, CUSTOM }
 
 data class AlbumUiState(
     val albums: List<PhotoAlbum> = emptyList(),

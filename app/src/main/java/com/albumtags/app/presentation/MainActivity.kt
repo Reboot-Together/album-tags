@@ -6,6 +6,9 @@
 package com.albumtags.app.presentation
 
 import android.Manifest
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -52,15 +55,23 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -70,6 +81,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,6 +93,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,7 +113,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
@@ -131,20 +149,26 @@ private fun AlbumTagsApp() {
         factory = AlbumViewModel.Factory(application.container)
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val permission = if (Build.VERSION.SDK_INT >= 33) {
-        Manifest.permission.READ_MEDIA_IMAGES
+    val permissions = if (Build.VERSION.SDK_INT >= 33) {
+        arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO
+        )
     } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
+        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
     var permissionGranted by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, permission) ==
-                PackageManager.PERMISSION_GRANTED
+            permissions.all {
+                ContextCompat.checkSelfPermission(context, it) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
         )
     }
     val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val granted = permissions.all { results[it] == true }
         permissionGranted = granted
         viewModel.loadAlbums(granted)
     }
@@ -177,7 +201,7 @@ private fun AlbumTagsApp() {
     }
 
     if (!permissionGranted) {
-        PermissionScreen { launcher.launch(permission) }
+        PermissionScreen { launcher.launch(permissions) }
     } else if (state.openedAlbum != null) {
         AlbumDetailScreen(
             album = state.openedAlbum!!,
@@ -263,6 +287,24 @@ private fun AlbumListScreen(
     onDeleteTagGroup: (String) -> Unit,
     onBulkAddTags: (Set<String>, Set<String>) -> Unit
 ) {
+    val context = LocalContext.current
+    val sortPreferences = remember {
+        context.getSharedPreferences("album_sort_preferences", android.content.Context.MODE_PRIVATE)
+    }
+    var sortMode by remember {
+        mutableStateOf(
+            runCatching {
+                AlbumSortMode.valueOf(
+                    sortPreferences.getString("sort_mode", AlbumSortMode.NEWEST.name)!!
+                )
+            }.getOrDefault(AlbumSortMode.NEWEST)
+        )
+    }
+    var customOrder by remember {
+        mutableStateOf(sortPreferences.getString("custom_order", "").orEmpty()
+            .split("|").filter { it.isNotBlank() })
+    }
+    var showSortMenu by remember { mutableStateOf(false) }
     var editingAlbum by remember { mutableStateOf<PhotoAlbum?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedAlbumIds by remember { mutableStateOf(emptySet<String>()) }
@@ -277,6 +319,27 @@ private fun AlbumListScreen(
         .filterValues { it.isNotEmpty() }
     val groupedTags = visibleTagGroups.values.flatten().toSet()
     val ungroupedTags = state.allTags.filter { it !in groupedTags }
+    val visibleAlbums = when (sortMode) {
+        AlbumSortMode.NEWEST -> state.visibleAlbums.sortedByDescending { it.newestDateSeconds }
+        AlbumSortMode.OLDEST -> state.visibleAlbums.sortedBy { it.oldestDateSeconds }
+        AlbumSortMode.NAME -> state.visibleAlbums.sortedBy { it.name.lowercase() }
+        AlbumSortMode.COUNT -> state.visibleAlbums.sortedByDescending { it.photoCount }
+        AlbumSortMode.CUSTOM -> {
+            val order = customOrder.withIndex().associate { it.value to it.index }
+            state.visibleAlbums.sortedWith(
+                compareBy<PhotoAlbum> { order[it.bucketId] ?: Int.MAX_VALUE }
+                    .thenByDescending { it.newestDateSeconds }
+            )
+        }
+    }
+    fun saveSort(mode: AlbumSortMode, order: List<String> = customOrder) {
+        sortMode = mode
+        customOrder = order
+        sortPreferences.edit()
+            .putString("sort_mode", mode.name)
+            .putString("custom_order", order.joinToString("|"))
+            .apply()
+    }
 
     BackHandler(enabled = selectionMode) {
         selectionMode = false
@@ -451,11 +514,43 @@ private fun AlbumListScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "앨범 ${state.visibleAlbums.size}개",
+                        "앨범 ${visibleAlbums.size}개",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.weight(1f))
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, "앨범 정렬")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            listOf(
+                                AlbumSortMode.NEWEST to "최신 앨범순",
+                                AlbumSortMode.OLDEST to "오래된 앨범순",
+                                AlbumSortMode.NAME to "이름순",
+                                AlbumSortMode.COUNT to "사진·동영상 수순",
+                                AlbumSortMode.CUSTOM to "사용자 지정 순서"
+                            ).forEach { (mode, label) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(if (sortMode == mode) "✓ $label" else label)
+                                    },
+                                    onClick = {
+                                        val initialOrder = if (mode == AlbumSortMode.CUSTOM) {
+                                            (customOrder + state.albums.map { it.bucketId }).distinct()
+                                        } else {
+                                            customOrder
+                                        }
+                                        saveSort(mode, initialOrder)
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     TextButton(onClick = {
                         selectionMode = !selectionMode
                         selectedAlbumIds = emptySet()
@@ -501,10 +596,11 @@ private fun AlbumListScreen(
                         CircularProgressIndicator()
                     }
                 }
-                state.visibleAlbums.isEmpty() -> item {
+                visibleAlbums.isEmpty() -> item {
                     EmptyState(state.albums.isEmpty())
                 }
-                else -> items(state.visibleAlbums, key = { it.bucketId }) { album ->
+                else -> items(visibleAlbums, key = { it.bucketId }) { album ->
+                    val customIndex = visibleAlbums.indexOfFirst { it.bucketId == album.bucketId }
                     AlbumCard(
                         album = album,
                         tags = state.tagMap[album.bucketId].orEmpty(),
@@ -527,6 +623,27 @@ private fun AlbumListScreen(
                         },
                         onEditTags = {
                             if (!selectionMode) editingAlbum = album
+                        },
+                        showOrderControls = sortMode == AlbumSortMode.CUSTOM,
+                        onMoveUp = {
+                            if (customIndex > 0) {
+                                val ids = visibleAlbums.map { it.bucketId }.toMutableList()
+                                java.util.Collections.swap(ids, customIndex, customIndex - 1)
+                                saveSort(
+                                    AlbumSortMode.CUSTOM,
+                                    ids + customOrder.filter { it !in ids }
+                                )
+                            }
+                        },
+                        onMoveDown = {
+                            if (customIndex in 0 until visibleAlbums.lastIndex) {
+                                val ids = visibleAlbums.map { it.bucketId }.toMutableList()
+                                java.util.Collections.swap(ids, customIndex, customIndex + 1)
+                                saveSort(
+                                    AlbumSortMode.CUSTOM,
+                                    ids + customOrder.filter { it !in ids }
+                                )
+                            }
                         }
                     )
                 }
@@ -604,7 +721,10 @@ private fun AlbumCard(
     selectionMode: Boolean,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
-    onEditTags: () -> Unit
+    onEditTags: () -> Unit,
+    showOrderControls: Boolean = false,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -648,6 +768,15 @@ private fun AlbumCard(
             }
             if (selectionMode) {
                 Checkbox(checked = selected, onCheckedChange = { onOpen() })
+            } else if (showOrderControls) {
+                Column {
+                    IconButton(onClick = onMoveUp) {
+                        Icon(Icons.Default.ArrowUpward, "위로 이동", tint = Indigo)
+                    }
+                    IconButton(onClick = onMoveDown) {
+                        Icon(Icons.Default.ArrowDownward, "아래로 이동", tint = Indigo)
+                    }
+                }
             } else {
                 IconButton(onClick = onEditTags) {
                     Icon(Icons.Default.Label, "태그 편집", tint = Indigo.copy(alpha = 0.7f))
@@ -667,22 +796,30 @@ private fun AlbumDetailScreen(
     onBack: () -> Unit,
     onSaveTags: (String, Set<String>) -> Unit
 ) {
+    val context = LocalContext.current
     var editingTags by remember { mutableStateOf(false) }
+    var showAlbumInfo by remember { mutableStateOf(false) }
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedMediaUris by remember { mutableStateOf(emptySet<String>()) }
+    val mediaSelectionMode = selectedMediaUris.isNotEmpty()
 
-    BackHandler(enabled = selectedPhotoIndex == null, onBack = onBack)
+    BackHandler(enabled = selectedPhotoIndex == null) {
+        if (mediaSelectionMode) selectedMediaUris = emptySet() else onBack()
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Background)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 12.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = {
+                if (mediaSelectionMode) selectedMediaUris = emptySet() else onBack()
+            }) {
                 Icon(Icons.Default.ArrowBack, "앨범 목록으로")
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    album.name,
+                    if (mediaSelectionMode) "${selectedMediaUris.size}개 선택" else album.name,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -692,8 +829,50 @@ private fun AlbumDetailScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
+            if (mediaSelectionMode) {
+                IconButton(onClick = {
+                    val selected = photos.filter { it.uri in selectedMediaUris }
+                    val uris = ArrayList(selected.map { Uri.parse(it.uri) })
+                    val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = if (selected.all { it.isVideo }) "video/*"
+                        else if (selected.none { it.isVideo }) "image/*" else "*/*"
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = ClipData.newUri(
+                            context.contentResolver,
+                            "선택한 미디어",
+                            uris.first()
+                        ).also { clip ->
+                            uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                        }
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "공유"))
+                }) {
+                    Icon(Icons.Default.Share, "선택한 미디어 공유", tint = Indigo)
+                }
+                IconButton(
+                    enabled = selectedMediaUris.size == 1,
+                    onClick = {
+                        val media = photos.first { it.uri in selectedMediaUris }
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(Uri.parse(media.uri), media.mimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "다른 앱으로 열기"))
+                    }
+                ) {
+                    Icon(Icons.Default.OpenInNew, "다른 앱으로 열기", tint = Indigo)
+                }
+                IconButton(onClick = { selectedMediaUris = emptySet() }) {
+                    Icon(Icons.Default.Close, "선택 취소")
+                }
+            } else {
+            IconButton(onClick = { showAlbumInfo = true }) {
+                Icon(Icons.Default.Info, "앨범 정보", tint = Indigo)
+            }
             IconButton(onClick = { editingTags = true }) {
                 Icon(Icons.Default.Label, "태그 편집", tint = Indigo)
+            }
             }
         }
 
@@ -738,16 +917,68 @@ private fun AlbumDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                gridItemsIndexed(photos, key = { _, photo -> photo.id }) { index, photo ->
-                    AsyncImage(
-                        model = photo.uri,
-                        contentDescription = "앨범 사진",
+                gridItemsIndexed(photos, key = { _, photo -> photo.stableKey }) { index, photo ->
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .clickable { selectedPhotoIndex = index },
-                        contentScale = ContentScale.Crop
-                    )
+                            .combinedClickable(
+                                onClick = {
+                                    if (mediaSelectionMode) {
+                                        selectedMediaUris =
+                                            if (photo.uri in selectedMediaUris) {
+                                                selectedMediaUris - photo.uri
+                                            } else {
+                                                selectedMediaUris + photo.uri
+                                            }
+                                    } else {
+                                        selectedPhotoIndex = index
+                                    }
+                                },
+                                onLongClick = {
+                                    selectedMediaUris = selectedMediaUris + photo.uri
+                                }
+                            )
+                    ) {
+                        AsyncImage(
+                            model = photo.uri,
+                            contentDescription = if (photo.isVideo) "앨범 동영상" else "앨범 사진",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        if (photo.isVideo) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(38.dp)
+                                    .background(Color.Black.copy(alpha = 0.58f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    "동영상 재생",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                        if (photo.uri in selectedMediaUris) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .background(Indigo.copy(alpha = 0.32f))
+                            )
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                "선택됨",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(7.dp)
+                                    .size(27.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -766,11 +997,83 @@ private fun AlbumDetailScreen(
         )
     }
 
+    if (showAlbumInfo) {
+        AlbumInfoDialog(
+            album = album,
+            onDismiss = { showAlbumInfo = false }
+        )
+    }
+
     selectedPhotoIndex?.let { initialIndex ->
         FullScreenPhotoViewer(
             photos = photos,
             initialIndex = initialIndex,
             onDismiss = { selectedPhotoIndex = null }
+        )
+    }
+}
+
+@Composable
+private fun AlbumInfoDialog(
+    album: PhotoAlbum,
+    onDismiss: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("yyyy년 M월 d일", Locale.getDefault()) }
+    fun formatDate(seconds: Long): String =
+        if (seconds > 0) dateFormat.format(Date(seconds * 1_000L)) else "정보 없음"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("앨범 정보", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AsyncImage(
+                    model = album.coverUri,
+                    contentDescription = "${album.name} 대표 사진",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .background(Color(0xFFE9EAF0), RoundedCornerShape(16.dp)),
+                    contentScale = ContentScale.Crop
+                )
+                Text(album.name, style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold)
+                AlbumInfoRow("전체 미디어", "${album.photoCount}개")
+                AlbumInfoRow(
+                    "구성",
+                    "사진 ${album.photoCount - album.videoCount}개 · 동영상 ${album.videoCount}개"
+                )
+                AlbumInfoRow(
+                    "촬영 기간",
+                    "${formatDate(album.oldestDateSeconds)} ~ " +
+                        formatDate(album.newestCaptureDateSeconds)
+                )
+                AlbumInfoRow(
+                    "저장 위치",
+                    album.relativePath.ifBlank { "정보 없음" }
+                )
+                AlbumInfoRow("최근 추가", formatDate(album.newestDateSeconds))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("닫기") }
+        }
+    )
+}
+
+@Composable
+private fun AlbumInfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            label,
+            modifier = Modifier.weight(0.34f),
+            color = Color(0xFF777B88),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            value,
+            modifier = Modifier.weight(0.66f),
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
@@ -800,10 +1103,17 @@ private fun FullScreenPhotoViewer(
                 modifier = Modifier.fillMaxSize(),
                 beyondViewportPageCount = 1
             ) { page ->
-                ZoomablePhoto(
-                    photo = photos[page],
-                    onTap = { controlsVisible = !controlsVisible }
-                )
+                if (photos[page].isVideo) {
+                    FullScreenVideo(
+                        media = photos[page],
+                        onTap = { controlsVisible = !controlsVisible }
+                    )
+                } else {
+                    ZoomablePhoto(
+                        photo = photos[page],
+                        onTap = { controlsVisible = !controlsVisible }
+                    )
+                }
             }
 
             if (controlsVisible) {
@@ -851,6 +1161,34 @@ private fun FullScreenPhotoViewer(
             }
         }
     }
+}
+
+@Composable
+private fun FullScreenVideo(
+    media: AlbumPhoto,
+    onTap: () -> Unit
+) {
+    val context = LocalContext.current
+    val player = remember(media.uri) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(media.uri)))
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    AndroidView(
+        factory = {
+            PlayerView(it).apply {
+                this.player = player
+                useController = true
+                setOnClickListener { onTap() }
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
