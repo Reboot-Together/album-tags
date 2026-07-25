@@ -58,6 +58,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -267,6 +269,7 @@ private fun AlbumListScreen(
     var showBulkTagEditor by remember { mutableStateOf(false) }
     var showTagManager by remember { mutableStateOf(false) }
     var tagToRename by remember { mutableStateOf<String?>(null) }
+    var collapsedTagGroups by remember { mutableStateOf(emptySet<String>()) }
     val availableTags = state.allTags.toSet()
     val visibleTagGroups = state.tagGroups
         .toSortedMap()
@@ -356,27 +359,62 @@ private fun AlbumListScreen(
                     )
                 }
                 visibleTagGroups.forEach { (groupName, tags) ->
-                    Text(
-                        groupName,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
-                        color = Indigo,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    val isCollapsed = groupName in collapsedTagGroups
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                collapsedTagGroups = if (isCollapsed) {
+                                    collapsedTagGroups - groupName
+                                } else {
+                                    collapsedTagGroups + groupName
+                                }
+                            }
+                            .padding(top = 8.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        tags.sorted().forEach { tag ->
-                            LongPressEditableTagChip(
-                                selected = tag in state.selectedTags,
-                                onClick = { onToggleTag(tag) },
-                                onLongClick = {
-                                    tagToRename = tag
-                                    showTagManager = true
-                                },
-                                label = { Text(tag) }
-                            )
+                        Icon(
+                            imageVector = if (isCollapsed) {
+                                Icons.Default.KeyboardArrowRight
+                            } else {
+                                Icons.Default.KeyboardArrowDown
+                            },
+                            contentDescription = if (isCollapsed) {
+                                "$groupName 펼치기"
+                            } else {
+                                "$groupName 접기"
+                            },
+                            tint = Indigo,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = groupName,
+                            color = Indigo,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            text = " (${tags.size})",
+                            color = Color(0xFF777B88),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                    if (!isCollapsed) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            tags.sorted().forEach { tag ->
+                                LongPressEditableTagChip(
+                                    selected = tag in state.selectedTags,
+                                    onClick = { onToggleTag(tag) },
+                                    onLongClick = {
+                                        tagToRename = tag
+                                        showTagManager = true
+                                    },
+                                    label = { Text(tag) }
+                                )
+                            }
                         }
                     }
                 }
