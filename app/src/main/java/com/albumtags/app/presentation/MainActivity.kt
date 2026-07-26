@@ -902,6 +902,7 @@ private fun AlbumDetailScreen(
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
     var selectedMediaUris by remember { mutableStateOf(emptySet<String>()) }
     var destinationOperation by remember { mutableStateOf<FileOperation?>(null) }
+    var destinationQuery by remember { mutableStateOf("") }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var pendingMove by remember {
         mutableStateOf<Pair<List<AlbumPhoto>, PhotoAlbum>?>(null)
@@ -963,10 +964,16 @@ private fun AlbumDetailScreen(
                 )
             }
             if (mediaSelectionMode) {
-                IconButton(onClick = { destinationOperation = FileOperation.MOVE }) {
+                IconButton(onClick = {
+                    destinationQuery = ""
+                    destinationOperation = FileOperation.MOVE
+                }) {
                     Icon(Icons.Default.DriveFileMove, "다른 앨범으로 이동", tint = Indigo)
                 }
-                IconButton(onClick = { destinationOperation = FileOperation.COPY }) {
+                IconButton(onClick = {
+                    destinationQuery = ""
+                    destinationOperation = FileOperation.COPY
+                }) {
                     Icon(Icons.Default.ContentCopy, "다른 앨범으로 복사", tint = Indigo)
                 }
                 IconButton(onClick = {
@@ -1139,10 +1146,16 @@ private fun AlbumDetailScreen(
     }
 
     destinationOperation?.let { operation ->
-        val destinations = albums.filter {
+        val allDestinations = albums.filter {
             it.bucketId != album.bucketId && it.relativePath.isNotBlank()
         }.sortedBy { it.name.lowercase() }
+        val destinations = allDestinations.filter {
+            destinationQuery.isBlank() ||
+                it.name.contains(destinationQuery, ignoreCase = true) ||
+                it.relativePath.contains(destinationQuery, ignoreCase = true)
+        }
         AlertDialog(
+            modifier = Modifier.imePadding(),
             onDismissRequest = { destinationOperation = null },
             title = {
                 Text(
@@ -1151,13 +1164,39 @@ private fun AlbumDetailScreen(
                 )
             },
             text = {
-                if (destinations.isEmpty()) {
-                    Text("이동하거나 복사할 수 있는 다른 앨범이 없습니다.")
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 420.dp)
-                    ) {
-                        items(destinations, key = { it.bucketId }) { destination ->
+                Column {
+                    OutlinedTextField(
+                        value = destinationQuery,
+                        onValueChange = { destinationQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("앨범 이름 검색") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (destinationQuery.isNotEmpty()) {
+                                IconButton(onClick = { destinationQuery = "" }) {
+                                    Icon(Icons.Default.Clear, "검색어 지우기")
+                                }
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (destinations.isEmpty()) {
+                        Text(
+                            if (allDestinations.isEmpty()) {
+                                "이동하거나 복사할 수 있는 다른 앨범이 없습니다."
+                            } else {
+                                "\"$destinationQuery\" 검색 결과가 없습니다."
+                            },
+                            modifier = Modifier.padding(vertical = 24.dp),
+                            color = Color(0xFF777B88)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            items(destinations, key = { it.bucketId }) { destination ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1233,6 +1272,7 @@ private fun AlbumDetailScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             },
