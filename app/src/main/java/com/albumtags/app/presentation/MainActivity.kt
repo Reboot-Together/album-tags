@@ -1259,14 +1259,30 @@ private fun AlbumDetailScreen(
                 Button(onClick = {
                     showDeleteConfirm = false
                     val selected = photos.filter { it.uri in selectedMediaUris }
+                    if (selected.isEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "삭제할 파일을 찾지 못했어요. 앨범을 새로고침해 주세요.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@Button
+                    }
                     if (Build.VERSION.SDK_INT >= 30) {
-                        val request = MediaStore.createDeleteRequest(
-                            context.contentResolver,
-                            selected.map { Uri.parse(it.uri) }
-                        )
-                        deletePermissionLauncher.launch(
-                            IntentSenderRequest.Builder(request.intentSender).build()
-                        )
+                        runCatching {
+                            val request = MediaStore.createDeleteRequest(
+                                context.contentResolver,
+                                selected.map { mediaStoreItemUri(it) }
+                            )
+                            deletePermissionLauncher.launch(
+                                IntentSenderRequest.Builder(request.intentSender).build()
+                            )
+                        }.onFailure {
+                            Toast.makeText(
+                                context,
+                                "삭제 승인창을 열지 못했어요. 앨범을 새로고침한 뒤 다시 시도해 주세요.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     } else {
                         coroutineScope.launch {
                             deleteMediaFiles(context, selected)
@@ -1402,6 +1418,24 @@ private fun shareMedia(
         Intent.createChooser(shareIntent, "외부 앱으로 공유").apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+    )
+}
+
+private fun mediaStoreItemUri(media: AlbumPhoto): Uri {
+    val current = Uri.parse(media.uri)
+    if (current.authority == MediaStore.AUTHORITY &&
+        (current.path?.contains("/images/") == true ||
+            current.path?.contains("/video/") == true)
+    ) {
+        return current
+    }
+    return android.content.ContentUris.withAppendedId(
+        if (media.isVideo) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        },
+        media.id
     )
 }
 

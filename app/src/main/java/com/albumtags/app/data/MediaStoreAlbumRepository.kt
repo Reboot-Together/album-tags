@@ -58,10 +58,7 @@ class MediaStoreAlbumRepository(
                     albums[bucketId] = MutableAlbum(
                         bucketId = bucketId,
                         name = cursor.getString(nameColumn) ?: "이름 없는 앨범",
-                        coverUri = ContentUris.withAppendedId(
-                            collection,
-                            imageId
-                        ).toString(),
+                        coverUri = mediaUri(imageId, isVideo),
                         count = 1,
                         newestDateSeconds = date,
                         oldestDateSeconds = takenSeconds,
@@ -76,10 +73,7 @@ class MediaStoreAlbumRepository(
                         minOf(current.oldestDateSeconds, takenSeconds)
                     if (takenSeconds > current.newestCaptureDateSeconds) {
                         current.newestCaptureDateSeconds = takenSeconds
-                        current.coverUri = ContentUris.withAppendedId(
-                            collection,
-                            imageId
-                        ).toString()
+                        current.coverUri = mediaUri(imageId, isVideo)
                         current.coverIsVideo = isVideo
                     }
                     if (isVideo) current.videoCount++
@@ -142,10 +136,11 @@ class MediaStoreAlbumRepository(
                     val addedMillis = cursor.getLong(addedColumn) * 1_000L
                     photos += AlbumPhoto(
                         id = id,
-                        uri = ContentUris.withAppendedId(
-                            collection,
-                            id
-                        ).toString(),
+                        uri = mediaUri(
+                            id,
+                            cursor.getInt(mediaTypeColumn) ==
+                                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                        ),
                         dateTakenMillis = if (taken > 0) taken else addedMillis,
                         dateAddedMillis = addedMillis,
                         mimeType = cursor.getString(mimeColumn).orEmpty(),
@@ -169,4 +164,14 @@ class MediaStoreAlbumRepository(
         var videoCount: Int,
         var coverIsVideo: Boolean
     )
+
+    private fun mediaUri(id: Long, isVideo: Boolean): String =
+        ContentUris.withAppendedId(
+            if (isVideo) {
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            },
+            id
+        ).toString()
 }
