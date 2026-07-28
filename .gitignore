@@ -9,3 +9,6 @@
 .externalNativeBuild
 .cxx
 app/build
+/.signing
+*.jks
+*.keystore

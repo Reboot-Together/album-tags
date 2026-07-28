@@ -46,6 +46,19 @@ Android Studio에서 이 폴더를 열고 Gradle 동기화 후 실행하거나 �
 
 APK는 `app\build\outputs\apk\debug\app-debug.apk`에 생성됩니다. Galaxy에서 처음 실행할 때 사진 접근 권한을 허용해야 합니다.
 
+## GitHub Release
+
+SemVer 형식의 태그(`v0.2.0` 등)를 push하면 GitHub Actions가 테스트와 서명된 release 빌드를 실행하고 다음 파일을 새 GitHub Release에 게시합니다.
+
+- `album-tags-vX.Y.Z.apk`: Galaxy에 직접 설치하는 Android 패키지
+- `album-tags-vX.Y.Z.aab`: Google Play Console 업로드용 App Bundle
+- `album-tags-vX.Y.Z-windows.zip`: Windows에서 Galaxy로 설치하는 배포 패키지
+- `SHA256SUMS.txt`: 다운로드 파일 무결성 검증값
+
+Windows 패키지의 `install-windows.bat`을 실행하고 USB 디버깅을 허용하면 필요한 Android Platform Tools를 Google에서 받아 APK를 설치합니다. Android 앱이므로 Windows 자체에서 앱을 실행하는 파일은 아닙니다.
+
+Release 서명 키는 Git 저장소에 포함하지 않습니다. 로컬 `.signing` 폴더의 안전한 키와 자격정보를 별도 암호화 저장소에도 백업해야 합니다.
+
 ## 데이터 주의사항
 
 - 태그와 태그 그룹은 앱 내부 저장소에 저장됩니다.

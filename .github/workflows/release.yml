@@ -1,0 +1,85 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Verify tag and release do not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists. Refusing to overwrite it."
+            exit 1
+          fi
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore release signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "${KEYSTORE_B64}" || { echo "Missing ANDROID_KEYSTORE_BASE64"; exit 1; }
+          printf '%s' "${KEYSTORE_B64}" | base64 --decode > "${RUNNER_TEMP}/album-tags-release.jks"
+
+      - name: Test and build signed Android release
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/album-tags-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest assembleRelease bundleRelease --no-daemon
+
+      - name: Package release files
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/windows
+          cp app/build/outputs/apk/release/app-release.apk "dist/album-tags-v${VERSION}.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "dist/album-tags-v${VERSION}.aab"
+          cp "dist/album-tags-v${VERSION}.apk" dist/windows/
+          cp scripts/install-windows.bat dist/windows/
+          (
+            cd dist/windows
+            zip -9 -r "../album-tags-v${VERSION}-windows.zip" .
+          )
+          sha256sum \
+            "dist/album-tags-v${VERSION}.apk" \
+            "dist/album-tags-v${VERSION}.aab" \
+            "dist/album-tags-v${VERSION}-windows.zip" \
+            > "dist/SHA256SUMS.txt"
+
+      - name: Publish immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/album-tags-v${VERSION}.apk" \
+            "dist/album-tags-v${VERSION}.aab" \
+            "dist/album-tags-v${VERSION}-windows.zip" \
+            "dist/SHA256SUMS.txt" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Album Tags ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag
