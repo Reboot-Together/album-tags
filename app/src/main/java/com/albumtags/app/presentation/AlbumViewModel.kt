@@ -56,6 +56,10 @@ class AlbumViewModel(
         it.copy(selectedTags = emptySet(), query = "", showUntaggedOnly = false)
     }
 
+    fun clearTagSelection() = _uiState.update {
+        it.copy(selectedTags = emptySet())
+    }
+
     fun toggleUntagged() = _uiState.update {
         it.copy(showUntaggedOnly = !it.showUntaggedOnly, selectedTags = emptySet())
     }

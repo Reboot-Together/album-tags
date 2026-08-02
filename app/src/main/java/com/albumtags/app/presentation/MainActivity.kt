@@ -261,6 +261,7 @@ private fun AlbumTagsApp() {
             onToggleTag = viewModel::toggleTag,
             onToggleUntagged = viewModel::toggleUntagged,
             onToggleMatchMode = viewModel::toggleMatchMode,
+            onClearTagSelection = viewModel::clearTagSelection,
             onClearFilters = viewModel::clearFilters,
             onSaveTags = viewModel::saveTags,
             onRefresh = { viewModel.loadAlbums(true) },
@@ -315,6 +316,7 @@ private fun AlbumListScreen(
     onToggleTag: (String) -> Unit,
     onToggleUntagged: () -> Unit,
     onToggleMatchMode: () -> Unit,
+    onClearTagSelection: () -> Unit,
     onClearFilters: () -> Unit,
     onSaveTags: (String, Set<String>) -> Unit,
     onRefresh: () -> Unit,
@@ -450,6 +452,9 @@ private fun AlbumListScreen(
                     if (state.selectedTags.isNotEmpty()) {
                         TextButton(onClick = onToggleMatchMode) {
                             Text(if (state.matchMode == TagMatchMode.ALL) "모두 포함" else "하나라도 포함")
+                        }
+                        TextButton(onClick = onClearTagSelection) {
+                            Text("전체 해제")
                         }
                     }
                     if (state.selectedTags.isNotEmpty() || state.showUntaggedOnly || state.query.isNotBlank()) {
